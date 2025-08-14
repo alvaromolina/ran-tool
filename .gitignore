@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.dist/
+.build/
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.npmrc
+
+# Environments & Secrets
+.env
+**/.env
+.env.local
+**/.env.local
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors/IDE
+.idea/
+# Keep VS Code settings committed unless requested otherwise
+# .vscode/
