@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.settings import settings
 from app.api.v1.health import router as health_router
+from app.api.v1.sites import router as sites_router
 
 app = FastAPI(title="RAN Quality Evaluator API", debug=settings.API_DEBUG)
 
@@ -17,6 +18,7 @@ app.add_middleware(
 
 # Routers
 app.include_router(health_router, prefix="/api")
+app.include_router(sites_router, prefix="/api")
 
 
 @app.get("/")
