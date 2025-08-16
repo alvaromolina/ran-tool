@@ -34,3 +34,10 @@ Thumbs.db
 .idea/
 # Keep VS Code settings committed unless requested otherwise
 # .vscode/
+.vscode/
+__pycache__
+cell_change_evolution/__pycache__
+backend/app/api/v1/__pycache__
+ui/node_modules
+quality_assurance_code/input/*
+quality_assurance_code/code/*

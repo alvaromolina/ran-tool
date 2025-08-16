@@ -1,5 +1,12 @@
+import os
+import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Ensure project root is on sys.path so we can import sibling modules like `cell_change_evolution`
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from app.core.settings import settings
 from app.api.v1.health import router as health_router

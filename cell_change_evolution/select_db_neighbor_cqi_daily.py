@@ -1,0 +1,498 @@
+import os
+import dotenv
+import pandas as pd
+from sqlalchemy import create_engine, text
+
+# Load environment variables
+dotenv.load_dotenv()
+POSTGRES_USERNAME = os.getenv('POSTGRES_USERNAME')
+POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD')
+POSTGRES_HOST = os.getenv('POSTGRES_HOST')
+POSTGRES_PORT = os.getenv('POSTGRES_PORT')
+POSTGRES_DB = os.getenv('POSTGRES_DB')
+
+def create_connection():
+    """Create database connection using SQLAlchemy"""
+    try:
+        connection_string = f"postgresql://{POSTGRES_USERNAME}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+        engine = create_engine(connection_string)
+        return engine
+    except Exception as e:
+        print(f"Error creating database connection: {e}")
+        return None
+
+def get_neighbor_sites(site_list, radius_km=5):
+    """Get neighbor sites within radius using PostGIS"""
+    engine = create_connection()
+    if engine is None:
+        return []
+    
+    if isinstance(site_list, str):
+        site_list = [site_list]
+    
+    if not site_list:
+        print("No sites provided")
+        return []
+    
+    try:
+        # Create placeholders for individual sites
+        site_placeholders = ', '.join([f"'{site}'" for site in site_list])
+        radius_meters = radius_km * 1000
+        
+        neighbor_query = text(f"""
+        WITH center_sites AS (
+            SELECT latitude, longitude, att_name
+            FROM public.master_node_total 
+            WHERE att_name IN ({site_placeholders})
+            AND latitude IS NOT NULL 
+            AND longitude IS NOT NULL
+        )
+        SELECT DISTINCT
+            m.att_name
+        FROM public.master_node_total m
+        CROSS JOIN center_sites c
+        WHERE m.att_name IS NOT NULL
+        AND m.latitude IS NOT NULL 
+        AND m.longitude IS NOT NULL
+        AND m.att_name != c.att_name
+        AND m.att_name NOT IN ({site_placeholders})
+        AND ST_DWithin(
+            ST_GeogFromText('POINT(' || c.longitude || ' ' || c.latitude || ')'),
+            ST_GeogFromText('POINT(' || m.longitude || ' ' || m.latitude || ')'),
+            {radius_meters}
+        )
+        ORDER BY m.att_name;
+        """)
+        
+        df = pd.read_sql_query(neighbor_query, engine)
+        neighbor_sites = df['att_name'].tolist()
+        
+        print(f"Found {len(neighbor_sites)} unique neighbor sites within {radius_km}km of {len(site_list)} center sites")
+        return neighbor_sites
+        
+    except Exception as e:
+        print(f"Error fetching neighbor sites for '{site_list}': {e}")
+        return []
+    finally:
+        engine.dispose()
+
+def get_neighbor_cqi_daily(site_list, min_date=None, max_date=None, technology=None, radius_km=5):
+    """Get CQI data for neighbor sites within radius using direct SQL"""
+    engine = create_connection()
+    if engine is None:
+        return None
+    
+    if isinstance(site_list, str):
+        site_list = [site_list]
+    
+    if not site_list:
+        print("No sites provided")
+        return pd.DataFrame()
+    
+    try:
+        site_placeholders = ', '.join([f"'{site}'" for site in site_list])
+        radius_meters = radius_km * 1000
+        
+        # Build technology conditions
+        tech_conditions = []
+        if technology == '3G':
+            tech_conditions.append("u.umts_composite_quality IS NOT NULL")
+        elif technology == '4G':
+            tech_conditions.append("l.f4g_composite_quality IS NOT NULL")
+        elif technology == '5G':
+            tech_conditions.append("n.nr_composite_quality IS NOT NULL")
+        
+        # Build date conditions
+        date_conditions = []
+        if min_date:
+            date_conditions.append(f"COALESCE(l.date, n.date, u.date) >= '{min_date}'")
+        if max_date:
+            date_conditions.append(f"COALESCE(l.date, n.date, u.date) <= '{max_date}'")
+        
+        # Combine all conditions
+        all_conditions = tech_conditions + date_conditions
+        where_clause = ""
+        if all_conditions:
+            where_clause = f"AND {' AND '.join(all_conditions)}"
+        
+        neighbor_cqi_query = text(f"""
+        WITH center_sites AS (
+            SELECT latitude, longitude, att_name
+            FROM public.master_node_total 
+            WHERE att_name IN ({site_placeholders})
+            AND latitude IS NOT NULL 
+            AND longitude IS NOT NULL
+        ),
+        neighbor_sites AS (
+            SELECT DISTINCT m.att_name
+            FROM public.master_node_total m
+            CROSS JOIN center_sites c
+            WHERE m.att_name IS NOT NULL
+            AND m.latitude IS NOT NULL 
+            AND m.longitude IS NOT NULL
+            AND m.att_name != c.att_name
+            AND m.att_name NOT IN ({site_placeholders})
+            AND ST_DWithin(
+                ST_GeogFromText('POINT(' || c.longitude || ' ' || c.latitude || ')'),
+                ST_GeogFromText('POINT(' || m.longitude || ' ' || m.latitude || ')'),
+                {radius_meters}
+            )
+        )
+        SELECT 
+            COALESCE(l.date, n.date, u.date) AS time,
+            COALESCE(l.site_att, n.site_att, u.site_att) AS site_att,
+            l.f4g_composite_quality AS lte_cqi,
+            n.nr_composite_quality AS nr_cqi,
+            u.umts_composite_quality AS umts_cqi
+        FROM neighbor_sites ns
+        LEFT JOIN (
+            SELECT date, site_att, f4g_composite_quality 
+            FROM lte_cqi_daily
+        ) l ON ns.att_name = l.site_att
+        FULL OUTER JOIN (
+            SELECT date, site_att, nr_composite_quality 
+            FROM nr_cqi_daily
+        ) n ON l.date = n.date AND l.site_att = n.site_att
+        FULL OUTER JOIN (
+            SELECT date, site_att, umts_composite_quality 
+            FROM umts_cqi_daily
+        ) u ON COALESCE(l.date, n.date) = u.date AND COALESCE(l.site_att, n.site_att) = u.site_att
+        WHERE COALESCE(l.site_att, n.site_att, u.site_att) IS NOT NULL
+        {where_clause}
+        ORDER BY site_att ASC, time ASC
+        """)
+        
+        result_df = pd.read_sql_query(neighbor_cqi_query, engine)
+        print(f"Retrieved neighbor CQI data for {len(site_list)} center sites: {result_df.shape[0]} records")
+        return result_df
+        
+    except Exception as e:
+        print(f"Error executing neighbor CQI query: {e}")
+        return None
+    finally:
+        engine.dispose()
+
+def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technology=None, radius_km=5, vendor=None):
+    """Get traffic data for neighbor sites within radius using direct SQL"""
+    engine = create_connection()
+    if engine is None:
+        return None
+    
+    if isinstance(site_list, str):
+        site_list = [site_list]
+    
+    if not site_list:
+        print("No sites provided")
+        return pd.DataFrame()
+    
+    try:
+        site_placeholders = ', '.join([f"'{site}'" for site in site_list])
+        radius_meters = radius_km * 1000
+        
+        # Build technology-specific query
+        if technology == '3G':
+            select_cols = """
+                u.date AS time,
+                u.site_att,
+                u.h3g_traffic_d_user_ps_gb,
+                u.e3g_traffic_d_user_ps_gb,
+                u.n3g_traffic_d_user_ps_gb,
+                NULL as h4g_traffic_d_user_ps_gb,
+                NULL as s4g_traffic_d_user_ps_gb,
+                NULL as e4g_traffic_d_user_ps_gb,
+                NULL as n4g_traffic_d_user_ps_gb,
+                NULL as e5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
+                NULL as n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
+                NULL as e5g_nsa_traffic_pdcp_gb_5gendc_5gleg,
+                NULL as n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
+            """
+            data_join = "LEFT JOIN umts_cqi_daily u ON ns.att_name = u.site_att"
+            tech_condition = "(u.h3g_traffic_d_user_ps_gb IS NOT NULL OR u.e3g_traffic_d_user_ps_gb IS NOT NULL OR u.n3g_traffic_d_user_ps_gb IS NOT NULL)"
+            
+        elif technology == '4G':
+            select_cols = """
+                l.date AS time,
+                l.site_att,
+                NULL as h3g_traffic_d_user_ps_gb,
+                NULL as e3g_traffic_d_user_ps_gb,
+                NULL as n3g_traffic_d_user_ps_gb,
+                l.h4g_traffic_d_user_ps_gb,
+                l.s4g_traffic_d_user_ps_gb,
+                l.e4g_traffic_d_user_ps_gb,
+                l.n4g_traffic_d_user_ps_gb,
+                NULL as e5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
+                NULL as n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
+                NULL as e5g_nsa_traffic_pdcp_gb_5gendc_5gleg,
+                NULL as n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
+            """
+            data_join = "LEFT JOIN lte_cqi_daily l ON ns.att_name = l.site_att"
+            tech_condition = "(l.h4g_traffic_d_user_ps_gb IS NOT NULL OR l.s4g_traffic_d_user_ps_gb IS NOT NULL OR l.e4g_traffic_d_user_ps_gb IS NOT NULL OR l.n4g_traffic_d_user_ps_gb IS NOT NULL)"
+            
+        elif technology == '5G':
+            select_cols = """
+                n.date AS time,
+                n.site_att,
+                NULL as h3g_traffic_d_user_ps_gb,
+                NULL as e3g_traffic_d_user_ps_gb,
+                NULL as n3g_traffic_d_user_ps_gb,
+                NULL as h4g_traffic_d_user_ps_gb,
+                NULL as s4g_traffic_d_user_ps_gb,
+                NULL as e4g_traffic_d_user_ps_gb,
+                NULL as n4g_traffic_d_user_ps_gb,
+                n.e5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
+                n.n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
+                n.e5g_nsa_traffic_pdcp_gb_5gendc_5gleg,
+                n.n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
+            """
+            data_join = "LEFT JOIN nr_cqi_daily n ON ns.att_name = n.site_att"
+            tech_condition = "(n.e5g_nsa_traffic_pdcp_gb_5gendc_4glegn IS NOT NULL OR n.n5g_nsa_traffic_pdcp_gb_5gendc_4glegn IS NOT NULL OR n.e5g_nsa_traffic_pdcp_gb_5gendc_5gleg IS NOT NULL OR n.n5g_nsa_traffic_pdcp_gb_5gendc_5gleg IS NOT NULL)"
+            
+        else:  # ALL technologies
+            select_cols = """
+                COALESCE(u.date, l.date, n.date) AS time,
+                COALESCE(u.site_att, l.site_att, n.site_att) AS site_att,
+                u.h3g_traffic_d_user_ps_gb,
+                u.e3g_traffic_d_user_ps_gb,
+                u.n3g_traffic_d_user_ps_gb,
+                l.h4g_traffic_d_user_ps_gb,
+                l.s4g_traffic_d_user_ps_gb,
+                l.e4g_traffic_d_user_ps_gb,
+                l.n4g_traffic_d_user_ps_gb,
+                n.e5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
+                n.n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
+                n.e5g_nsa_traffic_pdcp_gb_5gendc_5gleg,
+                n.n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
+            """
+            data_join = """
+                LEFT JOIN umts_cqi_daily u ON ns.att_name = u.site_att
+                FULL OUTER JOIN lte_cqi_daily l ON u.date = l.date AND u.site_att = l.site_att
+                FULL OUTER JOIN nr_cqi_daily n ON COALESCE(u.date, l.date) = n.date AND COALESCE(u.site_att, l.site_att) = n.site_att
+            """
+            tech_condition = "1=1"  # No technology filter for ALL
+        
+        # Build date and vendor conditions
+        conditions = [tech_condition]
+        
+        if min_date:
+            if technology in ['3G', '4G', '5G']:
+                conditions.append(f"date >= '{min_date}'")
+            else:
+                conditions.append(f"COALESCE(u.date, l.date, n.date) >= '{min_date}'")
+                
+        if max_date:
+            if technology in ['3G', '4G', '5G']:
+                conditions.append(f"date <= '{max_date}'")
+            else:
+                conditions.append(f"COALESCE(u.date, l.date, n.date) <= '{max_date}'")
+        
+        if vendor and technology in ['3G', '4G']:
+            vendor_map = {'huawei': 'h', 'ericsson': 'e', 'nokia': 'n', 'samsung': 's'}
+            vendor_prefix = vendor_map.get(vendor.lower())
+            if vendor_prefix:
+                if technology == '3G':
+                    conditions.append(f"u.{vendor_prefix}3g_traffic_d_user_ps_gb IS NOT NULL")
+                elif technology == '4G':
+                    conditions.append(f"l.{vendor_prefix}4g_traffic_d_user_ps_gb IS NOT NULL")
+        
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions != ["1=1"] else ""
+        
+        neighbor_traffic_query = text(f"""
+        WITH center_sites AS (
+            SELECT latitude, longitude, att_name
+            FROM public.master_node_total 
+            WHERE att_name IN ({site_placeholders})
+            AND latitude IS NOT NULL 
+            AND longitude IS NOT NULL
+        ),
+        neighbor_sites AS (
+            SELECT DISTINCT m.att_name
+            FROM public.master_node_total m
+            CROSS JOIN center_sites c
+            WHERE m.att_name IS NOT NULL
+            AND m.latitude IS NOT NULL 
+            AND m.longitude IS NOT NULL
+            AND m.att_name != c.att_name
+            AND m.att_name NOT IN ({site_placeholders})
+            AND ST_DWithin(
+                ST_GeogFromText('POINT(' || c.longitude || ' ' || c.latitude || ')'),
+                ST_GeogFromText('POINT(' || m.longitude || ' ' || m.latitude || ')'),
+                {radius_meters}
+            )
+        )
+        SELECT {select_cols}
+        FROM neighbor_sites ns
+        {data_join}
+        {where_clause}
+        ORDER BY site_att ASC, time ASC
+        """)
+        
+        result_df = pd.read_sql_query(neighbor_traffic_query, engine)
+        print(f"Retrieved neighbor traffic data for {len(site_list)} center sites: {result_df.shape[0]} records")
+        return result_df
+        
+    except Exception as e:
+        print(f"Error executing neighbor traffic query: {e}")
+        return None
+    finally:
+        engine.dispose()
+
+def get_neighbor_traffic_voice(site_list, min_date=None, max_date=None, technology=None, radius_km=5, vendor=None):
+    """Get voice traffic data for neighbor sites within radius using direct SQL"""
+    engine = create_connection()
+    if engine is None:
+        return None
+    
+    if isinstance(site_list, str):
+        site_list = [site_list]
+    
+    if not site_list:
+        print("No sites provided")
+        return pd.DataFrame()
+    
+    try:
+        site_placeholders = ', '.join([f"'{site}'" for site in site_list])
+        radius_meters = radius_km * 1000
+        
+        # Build technology-specific query
+        if technology == '3G':
+            select_cols = """
+                u.date AS time,
+                u.site_att,
+                NULL as user_traffic_volte_e,
+                NULL as user_traffic_volte_h,
+                NULL as user_traffic_volte_n,
+                NULL as user_traffic_volte_s,
+                u.h3g_traffic_v_user_cs,
+                u.e3g_traffic_v_user_cs,
+                u.n3g_traffic_v_user_cs
+            """
+            data_join = "LEFT JOIN umts_cqi_daily u ON ns.att_name = u.site_att"
+            tech_condition = "(u.h3g_traffic_v_user_cs IS NOT NULL OR u.e3g_traffic_v_user_cs IS NOT NULL OR u.n3g_traffic_v_user_cs IS NOT NULL)"
+            
+        elif technology == '4G':
+            select_cols = """
+                v.date AS time,
+                v.site_att,
+                v.user_traffic_volte_e,
+                v.user_traffic_volte_h,
+                v.user_traffic_volte_n,
+                v.user_traffic_volte_s,
+                NULL as h3g_traffic_v_user_cs,
+                NULL as e3g_traffic_v_user_cs,
+                NULL as n3g_traffic_v_user_cs
+            """
+            data_join = "LEFT JOIN volte_cqi_vendor_daily v ON ns.att_name = v.site_att"
+            tech_condition = "(v.user_traffic_volte_e IS NOT NULL OR v.user_traffic_volte_h IS NOT NULL OR v.user_traffic_volte_n IS NOT NULL OR v.user_traffic_volte_s IS NOT NULL)"
+            
+        else:  # ALL technologies
+            select_cols = """
+                COALESCE(v.date, u.date) AS time,
+                COALESCE(v.site_att, u.site_att) AS site_att,
+                v.user_traffic_volte_e,
+                v.user_traffic_volte_h,
+                v.user_traffic_volte_n,
+                v.user_traffic_volte_s,
+                u.h3g_traffic_v_user_cs,
+                u.e3g_traffic_v_user_cs,
+                u.n3g_traffic_v_user_cs
+            """
+            data_join = """
+                LEFT JOIN volte_cqi_vendor_daily v ON ns.att_name = v.site_att
+                FULL OUTER JOIN umts_cqi_daily u ON v.date = u.date AND v.site_att = u.site_att
+            """
+            tech_condition = "1=1"  # No technology filter for ALL
+        
+        # Build date and vendor conditions
+        conditions = [tech_condition]
+        
+        if min_date:
+            if technology in ['3G', '4G']:
+                conditions.append(f"date >= '{min_date}'")
+            else:
+                conditions.append(f"COALESCE(v.date, u.date) >= '{min_date}'")
+                
+        if max_date:
+            if technology in ['3G', '4G']:
+                conditions.append(f"date <= '{max_date}'")
+            else:
+                conditions.append(f"COALESCE(v.date, u.date) <= '{max_date}'")
+        
+        if vendor:
+            vendor_map = {'huawei': 'h', 'ericsson': 'e', 'nokia': 'n', 'samsung': 's'}
+            vendor_prefix = vendor_map.get(vendor.lower())
+            if vendor_prefix and technology:
+                if technology == '3G':
+                    conditions.append(f"u.{vendor_prefix}3g_traffic_v_user_cs IS NOT NULL")
+                elif technology == '4G':
+                    conditions.append(f"v.user_traffic_volte_{vendor_prefix} IS NOT NULL")
+        
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions != ["1=1"] else ""
+        
+        neighbor_voice_query = text(f"""
+        WITH center_sites AS (
+            SELECT latitude, longitude, att_name
+            FROM public.master_node_total 
+            WHERE att_name IN ({site_placeholders})
+            AND latitude IS NOT NULL 
+            AND longitude IS NOT NULL
+        ),
+        neighbor_sites AS (
+            SELECT DISTINCT m.att_name
+            FROM public.master_node_total m
+            CROSS JOIN center_sites c
+            WHERE m.att_name IS NOT NULL
+            AND m.latitude IS NOT NULL 
+            AND m.longitude IS NOT NULL
+            AND m.att_name != c.att_name
+            AND m.att_name NOT IN ({site_placeholders})
+            AND ST_DWithin(
+                ST_GeogFromText('POINT(' || c.longitude || ' ' || c.latitude || ')'),
+                ST_GeogFromText('POINT(' || m.longitude || ' ' || m.latitude || ')'),
+                {radius_meters}
+            )
+        )
+        SELECT {select_cols}
+        FROM neighbor_sites ns
+        {data_join}
+        {where_clause}
+        ORDER BY site_att ASC, time ASC
+        """)
+        
+        result_df = pd.read_sql_query(neighbor_voice_query, engine)
+        print(f"Retrieved neighbor voice traffic data for {len(site_list)} center sites: {result_df.shape[0]} records")
+        return result_df
+        
+    except Exception as e:
+        print(f"Error executing neighbor voice traffic query: {e}")
+        return None
+    finally:
+        engine.dispose()
+
+if __name__ == "__main__":
+    site_att = 'DIFALO0001'
+    
+    print("Testing Neighbor sites:")
+    neighbor_sites = get_neighbor_sites(site_att, radius_km=10)
+    print(f"Single site neighbors: {neighbor_sites}")
+    
+    multiple_sites = ['DIFALO0001', 'DIFALO0002']
+    neighbor_sites_multi = get_neighbor_sites(multiple_sites, radius_km=10)
+    print(f"Multiple sites neighbors: {neighbor_sites_multi}")
+
+    print("\nTesting Neighbor CQI data:")
+    neighbor_cqi = get_neighbor_cqi_daily(site_att, min_date='2024-01-01', max_date='2024-12-31', technology='4G', radius_km=10)
+    if neighbor_cqi is not None:
+        print(f"Neighbor CQI data shape: {neighbor_cqi.shape}")
+        print(neighbor_cqi.head())
+
+    print("\nTesting Neighbor Traffic data:")
+    neighbor_traffic = get_neighbor_traffic_data(site_att, min_date='2024-01-01', max_date='2024-12-31', technology='4G', radius_km=10)
+    if neighbor_traffic is not None:
+        print(f"Neighbor Traffic data shape: {neighbor_traffic.shape}")
+        print(neighbor_traffic.head())
+
+    print("\nTesting Neighbor Voice data:")
+    neighbor_voice = get_neighbor_traffic_voice(site_att, min_date='2024-01-01', max_date='2024-12-31', technology='4G', radius_km=10)
+    if neighbor_voice is not None:
+        print(f"Neighbor Voice data shape: {neighbor_voice.shape}")
+        print(neighbor_voice.head())

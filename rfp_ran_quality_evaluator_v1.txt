@@ -1,0 +1,105 @@
+RFP: RAN Quality Evaluator
+	•	Requirement List
+	•	Result Analysis
+	•	Evaluation Result:
+	•	Pass: All KPIs Pattern Pass
+	•	Fail: At least one KPI Pattern Fail
+	•	Restored: At least one KPI Pattern Restored, and the others KPI Pattern Pass
+
+	•	KPI Pattern Result
+	•	Pass
+	•	Fail
+	•	Restored
+
+	•	KPI Pattern Type: 9 Possibles KPI Pattern Type
+Settings:
+	•	threshold: 5%
+	•	period: 7 days
+	•	guard: 7 days
+Measure Ranges:
+	•	Before: [input_date – guard – period; input_date – guard]
+	•	After: [input_date + guard; input_date + guard + period]
+	•	Last: [max_date – period; max_date]
+Indicators:
+	•	Site Compound Quality Indicators: umts_cqi, lte_cqi, nr_cqi
+	•	Site Traffic Data (traffic_data) 3G_PS + 4G_PS + 5G_PS
+	•	Site Traffic Voice (traffic_voice): 3G_CS + VoLTE.
+	•	Neighbor Compound Quality Indicators: umts_cqi, lte_cqi, nr_cqi
+	•	Neighbor Traffic Data (traffic_data) 3G_PS + 4G_PS + 5G_PS
+	•	Neighbor Traffic Voice (traffic_voice): 3G_CS + VoLTE
+Methodology:
+	•	Calculate Average during Measure Range
+	•	Calculate the variation between Measure Ranges
+	•	Categorize the variation in one of the 9 KPI Pattern Types, 3 KPI Pattern Results.
+
+	•	Site Analysis
+
+Create plot using the site counters for neighbor list then calculate 
+	•	User Inputs:
+	•	site_att
+	•	input_date
+
+	•	input_date recommendation 
+	•	list of dates with cell qty variation (3g, 4g)
+
+	•	Plot01
+	•	period: [input_date – 30; max_date]
+	•	KPI Type: line continue 
+	•	KPI: Site Compound Quality Indicators: umts_cqi, lte_cqi, nr_cqi
+	•	Vertical Lines: dotted line
+	•	Vertical: before, after, last limits
+
+	•	Plot02
+	•	period: [input_date – 30; max_date]
+	•	KPI Type: stacked bar 
+	•	KPI: Site Traffic Data (traffic_data) 3G_PS + 4G_PS + 5G_PS
+	•	Vertical Lines: dotted line
+	•	Vertical: before, after, last limits
+
+	•	Plot03
+	•	period: [input_date – 30; max_date]
+	•	KPI Type: stacked bar 
+	•	KPI: Site Traffic Voice (traffic_voice): 3G_CS + VoLTE.
+	•	Vertical Lines: dotted line
+	•	Vertical: before, after, last limits
+
+	•	Neighbor Analysis
+Create plot grouping (sum) all the counters for neighbor list then calculate 
+	•	Plot04
+	•	Geolocated_Map
+	•	site_att -> green
+	•	neighbor sites-> yellow
+
+	•	Plot05: 
+	•	period: [input_date – 30; max_date]
+	•	KPI Type: line continue 
+	•	KPI: Neighbor Compound Quality Indicators: umts_cqi, lte_cqi, nr_cqi
+	•	Vertical Lines: dotted line
+	•	Vertical: before, after, last limits
+
+	•	Plot06
+	•	period: [input_date – 30; max_date]
+	•	KPI Type: stacked bar 
+	•	KPI: Neighbor Traffic Data (traffic_data) 3G_PS + 4G_PS + 5G_PS
+	•	Vertical Lines: dotted line
+	•	Vertical: before, after, last limits
+
+	•	Plot07
+	•	period: [input_date – 30; max_date]
+	•	KPI Type: stacked bar 
+	•	KPI: Neighbor Traffic Voice (traffic_voice): 3G_CS + VoLTE
+	•	Vertical Lines: dotted line
+	•	Vertical: before, after, last limits
+
+	•	Report Results
+	•	All the previous results in a pdf format.
+
+
+
+
+
+Report Plot Site Sample
+
+
+
+
