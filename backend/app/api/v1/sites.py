@@ -119,6 +119,8 @@ def get_site_cell_changes(
     technologies: Optional[List[str]] = Query(None, description="e.g. 3G,4G"),
     vendors: Optional[List[str]] = Query(None, description="e.g. huawei,ericsson,nokia,samsung"),
     expand_missing_dates: bool = Query(True),
+    limit: Optional[int] = Query(2000, ge=1, le=10000),
+    offset: int = Query(0, ge=0),
 ):
     df = get_cell_change_data_grouped(
         group_by=group_by,
@@ -145,6 +147,10 @@ def get_site_cell_changes(
     if expand_missing_dates:
         df = expand_dates(df, group_by=group_by)
 
+    # Optional pagination (post-aggregation)
+    if limit is not None:
+        df = df.iloc[offset : offset + limit]
+
     # Ensure date serialization and JSON-safe
     if 'date' in df.columns:
         df['date'] = df['date'].astype(str)
@@ -157,6 +163,8 @@ def get_site_cqi(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
     technology: Optional[str] = Query(None, pattern="^(3G|4G|5G)$"),
+    limit: Optional[int] = Query(5000, ge=1, le=100000),
+    offset: int = Query(0, ge=0),
 ):
     df = get_cqi_daily(
         att_name=site_att,
@@ -164,6 +172,10 @@ def get_site_cqi(
         max_date=str(to_date) if to_date else None,
         technology=technology,
     )
+    if df is None:
+        return []
+    if limit is not None:
+        df = df.iloc[offset : offset + limit]
     return df_json_records(df)
 
 
@@ -246,6 +258,8 @@ def get_neighbors_cqi(
     to_date: Optional[date] = Query(None),
     technology: Optional[str] = Query(None, pattern="^(3G|4G|5G)$"),
     radius_km: float = Query(5, ge=0.1, le=50),
+    limit: Optional[int] = Query(5000, ge=1, le=100000),
+    offset: int = Query(0, ge=0),
 ):
     df = get_neighbor_cqi_daily(
         site_list=site_att,
@@ -254,6 +268,10 @@ def get_neighbors_cqi(
         technology=technology,
         radius_km=radius_km,
     )
+    if df is None:
+        return []
+    if limit is not None:
+        df = df.iloc[offset : offset + limit]
     return df_json_records(df)
 
 
@@ -265,6 +283,8 @@ def get_neighbors_traffic(
     technology: Optional[str] = Query(None, pattern="^(3G|4G|5G)$"),
     vendor: Optional[str] = Query(None),
     radius_km: float = Query(5, ge=0.1, le=50),
+    limit: Optional[int] = Query(5000, ge=1, le=100000),
+    offset: int = Query(0, ge=0),
 ):
     df = get_neighbor_traffic_data(
         site_list=site_att,
@@ -274,6 +294,10 @@ def get_neighbors_traffic(
         radius_km=radius_km,
         vendor=vendor,
     )
+    if df is None:
+        return []
+    if limit is not None:
+        df = df.iloc[offset : offset + limit]
     return df_json_records(df)
 
 
@@ -285,6 +309,8 @@ def get_neighbors_voice(
     technology: Optional[str] = Query(None, pattern="^(3G|4G)$"),
     vendor: Optional[str] = Query(None),
     radius_km: float = Query(5, ge=0.1, le=50),
+    limit: Optional[int] = Query(5000, ge=1, le=100000),
+    offset: int = Query(0, ge=0),
 ):
     df = get_neighbor_traffic_voice(
         site_list=site_att,
@@ -294,6 +320,10 @@ def get_neighbors_voice(
         radius_km=radius_km,
         vendor=vendor,
     )
+    if df is None:
+        return []
+    if limit is not None:
+        df = df.iloc[offset : offset + limit]
     return df_json_records(df)
 
 
@@ -304,6 +334,8 @@ def get_site_traffic_data(
     to_date: Optional[date] = Query(None),
     technology: Optional[str] = Query(None, pattern="^(3G|4G|5G)$"),
     vendor: Optional[str] = Query(None, description="huawei|ericsson|nokia|samsung for 4G; huawei|ericsson|nokia for 3G"),
+    limit: Optional[int] = Query(5000, ge=1, le=100000),
+    offset: int = Query(0, ge=0),
 ):
     df = get_traffic_data_daily(
         att_name=site_att,
@@ -312,6 +344,10 @@ def get_site_traffic_data(
         technology=technology,
         vendor=vendor,
     )
+    if df is None:
+        return []
+    if limit is not None:
+        df = df.iloc[offset : offset + limit]
     return df_json_records(df)
 
 
@@ -322,6 +358,8 @@ def get_site_traffic_voice(
     to_date: Optional[date] = Query(None),
     technology: Optional[str] = Query(None, pattern="^(3G|4G)$"),
     vendor: Optional[str] = Query(None),
+    limit: Optional[int] = Query(5000, ge=1, le=100000),
+    offset: int = Query(0, ge=0),
 ):
     df = get_traffic_voice_daily(
         att_name=site_att,
@@ -330,4 +368,8 @@ def get_site_traffic_voice(
         technology=technology,
         vendor=vendor,
     )
+    if df is None:
+        return []
+    if limit is not None:
+        df = df.iloc[offset : offset + limit]
     return df_json_records(df)

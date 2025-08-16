@@ -3,6 +3,7 @@ import './App.css'
 import { api } from './api'
 import { MapContainer, TileLayer, CircleMarker, Popup, Circle } from 'react-leaflet'
 import { useRef, useEffect as useEffectReact } from 'react'
+import { SimpleLineChart, SimpleStackedBar } from './components/Charts'
 
 function App() {
   const [health, setHealth] = useState<string>('checking...')
@@ -14,6 +15,13 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mapGeo, setMapGeo] = useState<Array<{ role: 'center'|'neighbor', att_name: string, latitude: number, longitude: number }>>([])
+  // Chart datasets for M3 plots
+  const [siteCqi, setSiteCqi] = useState<any[]>([])
+  const [siteTraffic, setSiteTraffic] = useState<any[]>([])
+  const [siteVoice, setSiteVoice] = useState<any[]>([])
+  const [nbCqi, setNbCqi] = useState<any[]>([])
+  const [nbTraffic, setNbTraffic] = useState<any[]>([])
+  const [nbVoice, setNbVoice] = useState<any[]>([])
 
   const mapRef = useRef<any>(null)
 
@@ -140,6 +148,7 @@ function App() {
                   setLoading(true); setError(null);
                   const data = await api.cqi(site, {});
                   setResult(data);
+                  setSiteCqi(Array.isArray(data) ? data : [])
                 } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
               }}>CQI (all)</button>
 
@@ -148,6 +157,7 @@ function App() {
                   setLoading(true); setError(null);
                   const data = await api.traffic(site, { technology: '4G' });
                   setResult(data);
+                  setSiteTraffic(Array.isArray(data) ? data : [])
                 } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
               }}>Traffic (4G)</button>
 
@@ -156,6 +166,7 @@ function App() {
                   setLoading(true); setError(null);
                   const data = await api.voice(site, { technology: '4G' });
                   setResult(data);
+                  setSiteVoice(Array.isArray(data) ? data : [])
                 } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
               }}>Voice (4G)</button>
             </div>
@@ -185,6 +196,7 @@ function App() {
                   setLoading(true); setError(null);
                   const data = await api.neighborsCqi(site, { technology: '4G', radius_km: radiusKm });
                   setResult(data);
+                  setNbCqi(Array.isArray(data) ? data : [])
                 } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
               }}>Neighbors CQI (4G)</button>
 
@@ -193,6 +205,7 @@ function App() {
                   setLoading(true); setError(null);
                   const data = await api.neighborsTraffic(site, { technology: '4G', radius_km: radiusKm });
                   setResult(data);
+                  setNbTraffic(Array.isArray(data) ? data : [])
                 } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
               }}>Neighbors Traffic (4G)</button>
 
@@ -201,6 +214,7 @@ function App() {
                   setLoading(true); setError(null);
                   const data = await api.neighborsVoice(site, { technology: '4G', radius_km: radiusKm });
                   setResult(data);
+                  setNbVoice(Array.isArray(data) ? data : [])
                 } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
               }}>Neighbors Voice (4G)</button>
 
@@ -221,13 +235,19 @@ function App() {
         <section className="panel outputs">
           <div className="output-grid">
             <div className="output-block">
-              <div className="block-title">Response</div>
-              <pre className="code-block">
-                {result ? JSON.stringify(result, null, 2) : 'No data yet'}
-              </pre>
+              <div className="block-title">Plot01 – Site CQIs</div>
+              <SimpleLineChart data={siteCqi} title="CQIs" />
             </div>
             <div className="output-block">
-              <div className="block-title">Map</div>
+              <div className="block-title">Plot02 – Site Data Traffic</div>
+              <SimpleStackedBar data={siteTraffic} title="Traffic" />
+            </div>
+            <div className="output-block">
+              <div className="block-title">Plot03 – Site Voice Traffic</div>
+              <SimpleStackedBar data={siteVoice} title="Voice Traffic" />
+            </div>
+            <div className="output-block">
+              <div className="block-title">Plot04 – Map</div>
               {mapGeo.length > 0 ? (
                 <div className="map-wrap">
                   <MapContainer ref={mapRef} center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
@@ -267,6 +287,24 @@ function App() {
               ) : (
                 <div className="note">Click "Show Map" to visualize neighbors.</div>
               )}
+            </div>
+            <div className="output-block">
+              <div className="block-title">Plot05 – Neighbor CQIs</div>
+              <SimpleLineChart data={nbCqi} title="Neighbor CQIs" />
+            </div>
+            <div className="output-block">
+              <div className="block-title">Plot06 – Neighbor Data Traffic</div>
+              <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" />
+            </div>
+            <div className="output-block">
+              <div className="block-title">Plot07 – Neighbor Voice Traffic</div>
+              <SimpleStackedBar data={nbVoice} title="Neighbor Voice" />
+            </div>
+            <div className="output-block">
+              <div className="block-title">Raw Response</div>
+              <pre className="code-block">
+                {result ? JSON.stringify(result, null, 2) : 'No data yet'}
+              </pre>
             </div>
           </div>
         </section>

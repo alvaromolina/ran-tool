@@ -126,26 +126,43 @@ def get_max_date():
         return None
     
     try:
-        query = """
-        SELECT MIN(max_end_date) as final_max_date
-        FROM (
-            SELECT MAX(end_date) as max_end_date FROM public.lte_cell_traffic_period WHERE end_date IS NOT NULL
-            UNION ALL
-            SELECT MAX(end_date) as max_end_date FROM public.umts_cell_traffic_period WHERE end_date IS NOT NULL
-        ) max_dates;
-        """
-        
+        # Check table existence using to_regclass and get MAX(end_date) if present
         with engine.connect() as connection:
-            result = connection.execute(text(query))
-            row = result.fetchone()
-            max_date = row[0] if row and row[0] else None
-        
-        print(f"Retrieved max date: {max_date}")
-        return max_date
-        
+            lte_exists = connection.execute(text("SELECT to_regclass('public.lte_cell_traffic_period') IS NOT NULL")).scalar()
+            umts_exists = connection.execute(text("SELECT to_regclass('public.umts_cell_traffic_period') IS NOT NULL")).scalar()
+
+            lte_max = None
+            umts_max = None
+
+            if lte_exists:
+                try:
+                    lte_max = connection.execute(
+                        text("SELECT MAX(end_date) FROM public.lte_cell_traffic_period WHERE end_date IS NOT NULL")
+                    ).scalar()
+                except Exception as e:
+                    print(f"Warning: failed to get LTE max end_date: {e}")
+
+            if umts_exists:
+                try:
+                    umts_max = connection.execute(
+                        text("SELECT MAX(end_date) FROM public.umts_cell_traffic_period WHERE end_date IS NOT NULL")
+                    ).scalar()
+                except Exception as e:
+                    print(f"Warning: failed to get UMTS max end_date: {e}")
+
+            # Final result: min of available maxima if both exist; otherwise whichever exists; otherwise None
+            if lte_max and umts_max:
+                final_max = min(lte_max, umts_max)
+            else:
+                final_max = lte_max or umts_max or None
+
+        print(f"Retrieved max date: {final_max}")
+        return final_max
+
     except Exception as e:
         print(f"Error fetching max date: {e}")
         return None
+    
     finally:
         engine.dispose()
 
