@@ -7,6 +7,7 @@ import { SimpleLineChart, SimpleStackedBar } from './components/Charts'
 
 function App() {
   const [health, setHealth] = useState<string>('checking...')
+  const [theme, setTheme] = useState<'dark'|'light'>(() => (localStorage.getItem('theme') as 'dark'|'light') || 'dark')
   const [site, setSite] = useState<string>('')
   const [siteSuggestions, setSiteSuggestions] = useState<string[]>([])
   const [siteLoading, setSiteLoading] = useState(false)
@@ -39,6 +40,12 @@ function App() {
     const pts = latlngs.length === 1 ? [latlngs[0], [latlngs[0][0] + 0.0001, latlngs[0][1] + 0.0001]] : latlngs
     mapRef.current.fitBounds(pts, { padding: [24, 24] })
   }, [mapGeo])
+
+  useEffect(() => {
+    // apply theme attribute to <html>
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
 
   useEffect(() => {
     const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -149,6 +156,13 @@ function App() {
           <h1>RAN Quality Evaluator</h1>
           <div className="sub">API Health: <code>{health}</code></div>
         </div>
+        <button
+          className="theme-toggle"
+          onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+        >
+          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        </button>
       </header>
 
       <main className="layout">
