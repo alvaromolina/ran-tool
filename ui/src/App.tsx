@@ -7,11 +7,12 @@ import { SimpleLineChart, SimpleStackedBar } from './components/Charts'
 
 function App() {
   const [health, setHealth] = useState<string>('checking...')
-  const [site, setSite] = useState<string>('TESTSITE')
+  const [site, setSite] = useState<string>('')
   const [siteSuggestions, setSiteSuggestions] = useState<string[]>([])
   const [siteLoading, setSiteLoading] = useState(false)
   const [radiusKm, setRadiusKm] = useState<number>(5)
-  const [loading, setLoading] = useState(false)
+  const [loadingSite, setLoadingSite] = useState(false)
+  const [loadingNb, setLoadingNb] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mapGeo, setMapGeo] = useState<Array<{ role: 'center'|'neighbor', att_name: string, latitude: number, longitude: number }>>([])
   // Chart datasets for M3 plots
@@ -72,6 +73,10 @@ function App() {
     return () => t && clearTimeout(t)
   }, [site])
 
+  // Track whether we've fetched at least once to decide loader vs empty-state
+  const [fetchedSiteOnce, setFetchedSiteOnce] = useState(false)
+  const [fetchedNbOnce, setFetchedNbOnce] = useState(false)
+
   // Auto-fetch site datasets when a valid site is set
   useEffectReact(() => {
     const s = site?.trim()
@@ -79,8 +84,12 @@ function App() {
     let cancelled = false
     ;(async () => {
       try {
-        setLoading(true)
+        setLoadingSite(true)
         setError(null)
+        // clear old site datasets to avoid showing stale charts while loading
+        setSiteCqi([]); setSiteTraffic([]); setSiteVoice([])
+        // mark that we've started fetching so loaders appear
+        setFetchedSiteOnce(true)
         const [cqi, traffic, voice] = await Promise.all([
           api.cqi(s, {}),
           api.traffic(s, { technology: '4G' }),
@@ -93,7 +102,7 @@ function App() {
       } catch (e: any) {
         if (!cancelled) setError(String(e))
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setLoadingSite(false)
       }
     })()
     return () => { cancelled = true }
@@ -106,8 +115,12 @@ function App() {
     let cancelled = false
     ;(async () => {
       try {
-        setLoading(true)
+        setLoadingNb(true)
         setError(null)
+        // clear neighbor datasets while loading
+        setMapGeo([]); setNbCqi([]); setNbTraffic([]); setNbVoice([])
+        // show loaders immediately for neighbors
+        setFetchedNbOnce(true)
         const [geo, cqi, traffic, voice] = await Promise.all([
           api.neighborsGeo(s, { radius_km: radiusKm }),
           api.neighborsCqi(s, { technology: '4G', radius_km: radiusKm }),
@@ -119,10 +132,11 @@ function App() {
         setNbCqi(Array.isArray(cqi) ? cqi : [])
         setNbTraffic(Array.isArray(traffic) ? traffic : [])
         setNbVoice(Array.isArray(voice) ? voice : [])
+        setFetchedNbOnce(true)
       } catch (e: any) {
         if (!cancelled) setError(String(e))
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setLoadingNb(false)
       }
     })()
     return () => { cancelled = true }
@@ -179,7 +193,7 @@ function App() {
             </label>
           </div>
 
-          {loading && <div className="note">Loading...</div>}
+          {/* per-chart loading placeholders show in each chart. We only show loaders after first fetch starts */}
           {error && <div className="note error">{error}</div>}
         </section>
 
@@ -187,66 +201,56 @@ function App() {
           <div className="output-grid">
             <div className="output-block">
               <div className="block-title">Plot01 – Site CQIs</div>
-              <SimpleLineChart data={siteCqi} title="CQIs" />
+              <SimpleLineChart data={siteCqi} title="CQIs" loading={loadingSite && fetchedSiteOnce} />
             </div>
             <div className="output-block">
               <div className="block-title">Plot02 – Site Data Traffic</div>
-              <SimpleStackedBar data={siteTraffic} title="Traffic" />
+              <SimpleStackedBar data={siteTraffic} title="Traffic" loading={loadingSite && fetchedSiteOnce} />
             </div>
             <div className="output-block">
               <div className="block-title">Plot03 – Site Voice Traffic</div>
-              <SimpleStackedBar data={siteVoice} title="Voice Traffic" />
+              <SimpleStackedBar data={siteVoice} title="Voice Traffic" loading={loadingSite && fetchedSiteOnce} />
             </div>
             <div className="output-block">
               <div className="block-title">Plot05 – Neighbor CQIs</div>
-              <SimpleLineChart data={nbCqi} title="Neighbor CQIs" />
+              <SimpleLineChart data={nbCqi} title="Neighbor CQIs" loading={loadingNb && fetchedNbOnce} />
             </div>
             <div className="output-block">
               <div className="block-title">Plot06 – Neighbor Data Traffic</div>
-              <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" />
+              <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" loading={loadingNb && fetchedNbOnce} />
             </div>
             <div className="output-block">
               <div className="block-title">Plot07 – Neighbor Voice Traffic</div>
-              <SimpleStackedBar data={nbVoice} title="Neighbor Voice" />
+              <SimpleStackedBar data={nbVoice} title="Neighbor Voice" loading={loadingNb && fetchedNbOnce} />
             </div>
             <div className="output-block">
               <div className="block-title">Plot04 – Map</div>
-              {mapGeo.length > 0 ? (
+              {loadingNb && fetchedNbOnce ? (
+                <div className="chart-loading" style={{ height: 360 }} />
+              ) : mapGeo.length > 0 ? (
                 <div className="map-wrap">
                   <MapContainer ref={mapRef} center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
                     <TileLayer
                       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
-                    {(() => {
-                      const c = mapGeo.find((p) => p.role === 'center')
-                      if (!c) return null
-                      const radiusMeters = Math.max(100, Math.round(radiusKm * 1000))
-                      return (
-                        <Circle center={[c.latitude, c.longitude]} radius={radiusMeters} pathOptions={{ color: '#ff9f0a', fillOpacity: 0.05 }} />
+                    {mapGeo.map((g, idx) => (
+                      g.role === 'center' ? (
+                        <CircleMarker key={`c-${idx}`} center={[g.latitude, g.longitude]} radius={8} pathOptions={{ color: '#34c759' }}>
+                          <Popup>Center: {g.att_name}</Popup>
+                        </CircleMarker>
+                      ) : (
+                        <CircleMarker key={`n-${idx}`} center={[g.latitude, g.longitude]} radius={6} pathOptions={{ color: '#0a84ff' }}>
+                          <Popup>Neighbor: {g.att_name}</Popup>
+                        </CircleMarker>
                       )
-                    })()}
-                    {mapGeo.map((p, idx) => (
-                      <CircleMarker
-                        key={`${p.role}-${p.att_name}-${idx}`}
-                        center={[p.latitude, p.longitude]}
-                        radius={p.role === 'center' ? 8 : 6}
-                        pathOptions={{ color: p.role === 'center' ? '#ff3b30' : '#007aff', fillOpacity: 0.8 }}
-                      >
-                        <Popup>
-                          <div>
-                            <div><strong>{p.role.toUpperCase()}</strong></div>
-                            <div>Site: {p.att_name}</div>
-                            <div>Lat: {p.latitude.toFixed(6)}</div>
-                            <div>Lon: {p.longitude.toFixed(6)}</div>
-                          </div>
-                        </Popup>
-                      </CircleMarker>
                     ))}
+                    {/* radius circle for context */}
+                    <Circle center={mapCenter} radius={radiusKm * 1000} pathOptions={{ color: '#9aa0a6' }} />
                   </MapContainer>
                 </div>
               ) : (
-                <div className="note">Enter a valid site to load the map.</div>
+                <div className="chart-empty" style={{ height: 360 }}>No neighbor geometry available. Choose a valid site and radius.</div>
               )}
             </div>
           </div>

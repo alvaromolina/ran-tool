@@ -25,10 +25,16 @@ function numericKeys(rows: any[], exclude: string[]): string[] {
   return nums.slice(0, 5); // limit to avoid clutter
 }
 
-export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: number; title?: string }>
-  = ({ data, xKey, height = 260, title }) => {
+export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: number; title?: string; loading?: boolean }>
+  = ({ data, xKey, height = 260, title, loading }) => {
   const x = xKey || pickXKey(data) || '';
   const series = numericKeys(data, [x]);
+  if (loading) return (
+    <div className="chart-block">
+      {title && <div className="chart-title">{title}</div>}
+      <div className="chart-loading" style={{ height }} />
+    </div>
+  );
   if (!x || series.length === 0) return (
     <div className="chart-block">
       <div className="chart-empty">No numeric series to chart. Choose a valid site and date.</div>
@@ -53,10 +59,16 @@ export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: nu
   );
 };
 
-export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: number; title?: string }>
-  = ({ data, xKey, height = 260, title }) => {
+export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: number; title?: string; loading?: boolean }>
+  = ({ data, xKey, height = 260, title, loading }) => {
   const x = xKey || pickXKey(data) || '';
   const series = numericKeys(data, [x]);
+  if (loading) return (
+    <div className="chart-block">
+      {title && <div className="chart-title">{title}</div>}
+      <div className="chart-loading" style={{ height }} />
+    </div>
+  );
   if (!x || series.length === 0) return (
     <div className="chart-block">
       <div className="chart-empty">No numeric series to chart. Choose a valid site and date.</div>
