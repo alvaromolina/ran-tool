@@ -29,12 +29,16 @@ export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: nu
   = ({ data, xKey, height = 260, title }) => {
   const x = xKey || pickXKey(data) || '';
   const series = numericKeys(data, [x]);
-  if (!x || series.length === 0) return <div className="chart-empty">No numeric series to chart</div>;
+  if (!x || series.length === 0) return (
+    <div className="chart-block">
+      <div className="chart-empty">No numeric series to chart. Choose a valid site and date.</div>
+    </div>
+  );
   return (
     <div className="chart-block">
       {title && <div className="chart-title">{title}</div>}
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey={x} minTickGap={24} />
           <YAxis />
@@ -53,12 +57,16 @@ export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: n
   = ({ data, xKey, height = 260, title }) => {
   const x = xKey || pickXKey(data) || '';
   const series = numericKeys(data, [x]);
-  if (!x || series.length === 0) return <div className="chart-empty">No numeric series to chart</div>;
+  if (!x || series.length === 0) return (
+    <div className="chart-block">
+      <div className="chart-empty">No numeric series to chart. Choose a valid site and date.</div>
+    </div>
+  );
   return (
     <div className="chart-block">
       {title && <div className="chart-title">{title}</div>}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+        <BarChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey={x} minTickGap={24} />
           <YAxis />

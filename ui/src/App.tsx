@@ -11,7 +11,6 @@ function App() {
   const [siteSuggestions, setSiteSuggestions] = useState<string[]>([])
   const [siteLoading, setSiteLoading] = useState(false)
   const [radiusKm, setRadiusKm] = useState<number>(5)
-  const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mapGeo, setMapGeo] = useState<Array<{ role: 'center'|'neighbor', att_name: string, latitude: number, longitude: number }>>([])
@@ -73,6 +72,62 @@ function App() {
     return () => t && clearTimeout(t)
   }, [site])
 
+  // Auto-fetch site datasets when a valid site is set
+  useEffectReact(() => {
+    const s = site?.trim()
+    if (!s || s.length < 2) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const [cqi, traffic, voice] = await Promise.all([
+          api.cqi(s, {}),
+          api.traffic(s, { technology: '4G' }),
+          api.voice(s, { technology: '4G' }),
+        ])
+        if (cancelled) return
+        setSiteCqi(Array.isArray(cqi) ? cqi : [])
+        setSiteTraffic(Array.isArray(traffic) ? traffic : [])
+        setSiteVoice(Array.isArray(voice) ? voice : [])
+      } catch (e: any) {
+        if (!cancelled) setError(String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [site])
+
+  // Auto-fetch neighbor datasets (including geo) when site or radius changes
+  useEffectReact(() => {
+    const s = site?.trim()
+    if (!s || s.length < 2) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const [geo, cqi, traffic, voice] = await Promise.all([
+          api.neighborsGeo(s, { radius_km: radiusKm }),
+          api.neighborsCqi(s, { technology: '4G', radius_km: radiusKm }),
+          api.neighborsTraffic(s, { technology: '4G', radius_km: radiusKm }),
+          api.neighborsVoice(s, { technology: '4G', radius_km: radiusKm }),
+        ])
+        if (cancelled) return
+        setMapGeo(Array.isArray(geo) ? geo : [])
+        setNbCqi(Array.isArray(cqi) ? cqi : [])
+        setNbTraffic(Array.isArray(traffic) ? traffic : [])
+        setNbVoice(Array.isArray(voice) ? voice : [])
+      } catch (e: any) {
+        if (!cancelled) setError(String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [site, radiusKm])
+
   return (
     <div className="app">
       <header className="app-header">
@@ -124,110 +179,6 @@ function App() {
             </label>
           </div>
 
-          <div className="section">
-            <h3>Site Data</h3>
-            <div className="btn-grid">
-              <button disabled={loading} onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.ranges(site);
-                  setResult(data);
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>Ranges</button>
-
-              <button disabled={loading} onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.cellChanges(site, { group_by: 'network' });
-                  setResult(data);
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>Cell Changes (network)</button>
-
-              <button disabled={loading} onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.cqi(site, {});
-                  setResult(data);
-                  setSiteCqi(Array.isArray(data) ? data : [])
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>CQI (all)</button>
-
-              <button disabled={loading} onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.traffic(site, { technology: '4G' });
-                  setResult(data);
-                  setSiteTraffic(Array.isArray(data) ? data : [])
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>Traffic (4G)</button>
-
-              <button disabled={loading} onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.voice(site, { technology: '4G' });
-                  setResult(data);
-                  setSiteVoice(Array.isArray(data) ? data : [])
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>Voice (4G)</button>
-            </div>
-          </div>
-
-          <div className="section">
-            <h3>Neighbors</h3>
-            <div className="btn-grid">
-              <button disabled={loading} onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.neighbors(site, { radius_km: radiusKm });
-                  setResult(data);
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>Neighbors List</button>
-
-              <button disabled={loading} onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.neighborsGeo(site, { radius_km: radiusKm });
-                  setResult(data);
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>Neighbors Geo</button>
-
-              <button disabled={loading} onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.neighborsCqi(site, { technology: '4G', radius_km: radiusKm });
-                  setResult(data);
-                  setNbCqi(Array.isArray(data) ? data : [])
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>Neighbors CQI (4G)</button>
-
-              <button disabled={loading} onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.neighborsTraffic(site, { technology: '4G', radius_km: radiusKm });
-                  setResult(data);
-                  setNbTraffic(Array.isArray(data) ? data : [])
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>Neighbors Traffic (4G)</button>
-
-              <button disabled={loading} onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.neighborsVoice(site, { technology: '4G', radius_km: radiusKm });
-                  setResult(data);
-                  setNbVoice(Array.isArray(data) ? data : [])
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>Neighbors Voice (4G)</button>
-
-              <button disabled={loading} className="primary" onClick={async () => {
-                try {
-                  setLoading(true); setError(null);
-                  const data = await api.neighborsGeo(site, { radius_km: radiusKm });
-                  setMapGeo(Array.isArray(data) ? data : []);
-                } catch (e:any) { setError(String(e)); } finally { setLoading(false); }
-              }}>Show Map</button>
-            </div>
-          </div>
-
           {loading && <div className="note">Loading...</div>}
           {error && <div className="note error">{error}</div>}
         </section>
@@ -247,6 +198,18 @@ function App() {
               <SimpleStackedBar data={siteVoice} title="Voice Traffic" />
             </div>
             <div className="output-block">
+              <div className="block-title">Plot05 – Neighbor CQIs</div>
+              <SimpleLineChart data={nbCqi} title="Neighbor CQIs" />
+            </div>
+            <div className="output-block">
+              <div className="block-title">Plot06 – Neighbor Data Traffic</div>
+              <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" />
+            </div>
+            <div className="output-block">
+              <div className="block-title">Plot07 – Neighbor Voice Traffic</div>
+              <SimpleStackedBar data={nbVoice} title="Neighbor Voice" />
+            </div>
+            <div className="output-block">
               <div className="block-title">Plot04 – Map</div>
               {mapGeo.length > 0 ? (
                 <div className="map-wrap">
@@ -255,11 +218,9 @@ function App() {
                       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
-                    {/* Draw radius circle around center (in meters) if available */}
                     {(() => {
                       const c = mapGeo.find((p) => p.role === 'center')
                       if (!c) return null
-                      // Approximate radius from current radiusKm when fetched
                       const radiusMeters = Math.max(100, Math.round(radiusKm * 1000))
                       return (
                         <Circle center={[c.latitude, c.longitude]} radius={radiusMeters} pathOptions={{ color: '#ff9f0a', fillOpacity: 0.05 }} />
@@ -285,26 +246,8 @@ function App() {
                   </MapContainer>
                 </div>
               ) : (
-                <div className="note">Click "Show Map" to visualize neighbors.</div>
+                <div className="note">Enter a valid site to load the map.</div>
               )}
-            </div>
-            <div className="output-block">
-              <div className="block-title">Plot05 – Neighbor CQIs</div>
-              <SimpleLineChart data={nbCqi} title="Neighbor CQIs" />
-            </div>
-            <div className="output-block">
-              <div className="block-title">Plot06 – Neighbor Data Traffic</div>
-              <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" />
-            </div>
-            <div className="output-block">
-              <div className="block-title">Plot07 – Neighbor Voice Traffic</div>
-              <SimpleStackedBar data={nbVoice} title="Neighbor Voice" />
-            </div>
-            <div className="output-block">
-              <div className="block-title">Raw Response</div>
-              <pre className="code-block">
-                {result ? JSON.stringify(result, null, 2) : 'No data yet'}
-              </pre>
             </div>
           </div>
         </section>
