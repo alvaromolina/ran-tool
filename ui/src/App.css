@@ -282,3 +282,79 @@ html, body, #root { width: 100%; height: 100%; }
 [data-theme='light'] .map-wrap { border-color: #e5e7eb; }
 [data-theme='light'] .map-empty { background: #f9fafb; color: #6b7280; }
 [data-theme='light'] .theme-toggle { background: #f8fafc; color: #111827; border-color: #e5e7eb; }
+
+/* Evaluation summary banner */
+.evaluation-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px solid #222;
+  border-radius: 10px;
+  background: #0f0f0f;
+}
+.evaluation-banner .eval-title { font-weight: 600; color: #cbd5e1; }
+.evaluation-banner .eval-summary { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.evaluation-banner .badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  background: #1f2937;
+  border: 1px solid #333;
+}
+.evaluation-banner .meta { color: #9aa0a6; font-size: 12px; }
+.evaluation-banner .eval-empty, .evaluation-banner .eval-loading, .evaluation-banner .eval-error { color: #9aa0a6; }
+.evaluation-banner.is-pass .badge { background: #064e3b; color: #d1fae5; border-color: #065f46; }
+.evaluation-banner.is-fail .badge { background: #7f1d1d; color: #fee2e2; border-color: #991b1b; }
+.evaluation-banner.is-restored .badge { background: #1e3a8a; color: #dbeafe; border-color: #1d4ed8; }
+
+/* Light theme overrides for evaluation banner */
+[data-theme='light'] .evaluation-banner { border-color: #e5e7eb; background: #ffffff; }
+[data-theme='light'] .evaluation-banner .eval-title { color: #111827; }
+[data-theme='light'] .evaluation-banner .badge { background: #f3f4f6; border-color: #e5e7eb; }
+[data-theme='light'] .evaluation-banner .meta { color: #6b7280; }
+[data-theme='light'] .evaluation-banner .eval-empty, [data-theme='light'] .evaluation-banner .eval-loading, [data-theme='light'] .evaluation-banner .eval-error { color: #6b7280; }
+[data-theme='light'] .evaluation-banner.is-pass .badge { background: #d1fae5; color: #064e3b; border-color: #a7f3d0; }
+[data-theme='light'] .evaluation-banner.is-fail .badge { background: #fee2e2; color: #7f1d1d; border-color: #fecaca; }
+[data-theme='light'] .evaluation-banner.is-restored .badge { background: #dbeafe; color: #1e3a8a; border-color: #bfdbfe; }
+
+/* Evaluation metrics compact table */
+.evaluation-banner .mtable { width: 100%; }
+.evaluation-banner .thead, .evaluation-banner .trow {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr;
+  gap: 8px;
+}
+.evaluation-banner .thead {
+  font-size: 12px;
+  color: #9aa0a6;
+  border-bottom: 1px solid #222;
+  padding-bottom: 6px;
+  margin-top: 4px;
+}
+.evaluation-banner .tbody { display: grid; gap: 6px; margin-top: 8px; }
+.evaluation-banner .trow { align-items: center; }
+.evaluation-banner .cell.name { font-weight: 500; color: #e5e7eb; }
+.evaluation-banner .cell.num { font-variant-numeric: tabular-nums; color: #cbd5e1; }
+.vbadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid #2a2a2a;
+  background: #151515;
+  color: #e5e5e5;
+}
+.vbadge.vb-pass { background: #064e3b; color: #d1fae5; border-color: #065f46; }
+.vbadge.vb-fail { background: #7f1d1d; color: #fee2e2; border-color: #991b1b; }
+.vbadge.vb-restored { background: #1e3a8a; color: #dbeafe; border-color: #1d4ed8; }
+
+[data-theme='light'] .evaluation-banner .thead { border-color: #e5e7eb; color: #6b7280; }
+[data-theme='light'] .evaluation-banner .cell.name { color: #111827; }
+[data-theme='light'] .evaluation-banner .cell.num { color: #374151; }
+[data-theme='light'] .vbadge { background: #f3f4f6; color: #111827; border-color: #e5e7eb; }
+[data-theme='light'] .vbadge.vb-pass { background: #d1fae5; color: #064e3b; border-color: #a7f3d0; }
+[data-theme='light'] .vbadge.vb-fail { background: #fee2e2; color: #7f1d1d; border-color: #fecaca; }
+[data-theme='light'] .vbadge.vb-restored { background: #dbeafe; color: #1e3a8a; border-color: #bfdbfe; }

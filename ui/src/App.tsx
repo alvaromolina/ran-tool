@@ -23,6 +23,22 @@ function App() {
   const [nbCqi, setNbCqi] = useState<any[]>([])
   const [nbTraffic, setNbTraffic] = useState<any[]>([])
   const [nbVoice, setNbVoice] = useState<any[]>([])
+  // Evaluation (M4)
+  const [evalLoading, setEvalLoading] = useState(false)
+  const [evalResult, setEvalResult] = useState<null | { site_att: string; input_date: string; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; options: any; metrics: any[] }>(null)
+  const [evalError, setEvalError] = useState<string | null>(null)
+  const [evalThreshold, setEvalThreshold] = useState<number>(() => {
+    const v = localStorage.getItem('eval.threshold');
+    return v != null ? parseFloat(v) : 0.05;
+  })
+  const [evalPeriod, setEvalPeriod] = useState<number>(() => {
+    const v = localStorage.getItem('eval.period');
+    return v != null ? parseInt(v, 10) : 7;
+  })
+  const [evalGuard, setEvalGuard] = useState<number>(() => {
+    const v = localStorage.getItem('eval.guard');
+    return v != null ? parseInt(v, 10) : 7;
+  })
 
   const mapRef = useRef<any>(null)
 
@@ -57,6 +73,28 @@ function App() {
       })
       .catch((err) => setHealth(`error: ${String(err)}`))
   }, [])
+
+  // Persist evaluation options
+  useEffect(() => { localStorage.setItem('eval.threshold', String(evalThreshold)) }, [evalThreshold])
+  useEffect(() => { localStorage.setItem('eval.period', String(evalPeriod)) }, [evalPeriod])
+  useEffect(() => { localStorage.setItem('eval.guard', String(evalGuard)) }, [evalGuard])
+
+  // Trigger evaluation on site/options change (uses max available date for now)
+  useEffect(() => {
+    if (!site) { setEvalResult(null); return }
+    let cancelled = false
+    setEvalLoading(true)
+    setEvalError(null)
+    api.ranges(site)
+      .then(r => {
+        const input_date = r.max_date || new Date().toISOString().slice(0,10)
+        return api.evaluate({ site_att: site, input_date, threshold: evalThreshold, period: evalPeriod, guard: evalGuard })
+      })
+      .then(res => { if (!cancelled) setEvalResult(res) })
+      .catch(err => { if (!cancelled) setEvalError(String(err)) })
+      .finally(() => { if (!cancelled) setEvalLoading(false) })
+    return () => { cancelled = true }
+  }, [site, evalThreshold, evalPeriod, evalGuard])
 
   // Debounced site autocomplete
   useEffectReact(() => {
@@ -206,12 +244,93 @@ function App() {
               />
             </label>
           </div>
+          <div className="form-row">
+            <label className="field">
+              <span>Threshold (%)</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.5}
+                value={Math.round(evalThreshold * 10000) / 100}
+                onChange={e => setEvalThreshold(Math.max(0, Math.min(1, (parseFloat(e.target.value) || 0) / 100)))}
+              />
+            </label>
+            <label className="field">
+              <span>Period (days)</span>
+              <input
+                type="number"
+                min={1}
+                max={90}
+                step={1}
+                value={evalPeriod}
+                onChange={e => setEvalPeriod(Math.max(1, Math.min(90, parseInt(e.target.value || '0', 10))))}
+              />
+            </label>
+            <label className="field">
+              <span>Guard (days)</span>
+              <input
+                type="number"
+                min={0}
+                max={90}
+                step={1}
+                value={evalGuard}
+                onChange={e => setEvalGuard(Math.max(0, Math.min(90, parseInt(e.target.value || '0', 10))))}
+              />
+            </label>
+          </div>
 
           {/* per-chart loading placeholders show in each chart. We only show loaders after first fetch starts */}
           {error && <div className="note error">{error}</div>}
         </section>
 
         <section className="panel outputs">
+          <div className={`evaluation-banner ${evalResult?.overall ? `is-${evalResult.overall.toLowerCase()}` : ''}`}>
+            {site ? (
+              evalLoading ? (
+                <div className="eval-loading">Evaluating…</div>
+              ) : evalError ? (
+                <div className="eval-error">Evaluation error: {evalError}</div>
+              ) : evalResult ? (
+                <>
+                  <div className="eval-title">Evaluation Result</div>
+                  <div className="eval-summary">
+                    <span className="badge">{evalResult.overall || 'Inconclusive'}</span>
+                    <span className="meta">Date: {evalResult.input_date}</span>
+                    <span className="meta">Threshold: {(evalResult.options?.threshold ?? 0.05) * 100}%</span>
+                  </div>
+                  {evalResult.metrics?.length ? (
+                    <div className="eval-metrics">
+                      <div className="mtable">
+                        <div className="thead">
+                          <div>Name</div>
+                          <div>Δ After/Before</div>
+                          <div>Δ Last/After</div>
+                          <div>Class</div>
+                          <div>Verdict</div>
+                        </div>
+                        <div className="tbody">
+                          {evalResult.metrics.map((m, i) => (
+                            <div className="trow" key={i}>
+                              <div className="cell name">{m.name}</div>
+                              <div className="cell num">{m.delta_after_before != null ? `${(m.delta_after_before*100).toFixed(1)}%` : '—'}</div>
+                              <div className="cell num">{m.delta_last_after != null ? `${(m.delta_last_after*100).toFixed(1)}%` : '—'}</div>
+                              <div className="cell">{m.klass || '—'}</div>
+                              <div className="cell"><span className={`vbadge vb-${(m.verdict||'inconclusive').toLowerCase()}`}>{m.verdict || 'Inconclusive'}</span></div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="eval-empty">No evaluation yet.</div>
+              )
+            ) : (
+              <div className="eval-empty">Choose a site to see the evaluation summary.</div>
+            )}
+          </div>
           <div className="output-grid">
             <div className="output-block">
               <div className="block-title">Plot01 – Site CQIs</div>

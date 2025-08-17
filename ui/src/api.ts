@@ -8,6 +8,16 @@ async function http<T>(path: string): Promise<T> {
   return res.json();
 }
 
+async function httpPost<T>(path: string, body: any): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export const api = {
   health: () => http<{ status: string }>(`/api/health`),
   searchSites: (q: string, limit = 10) => {
@@ -92,4 +102,9 @@ export const api = {
     const qs = q.toString();
     return http<any[]>(`/api/sites/${encodeURIComponent(site)}/neighbors/traffic/voice${qs ? `?${qs}` : ''}`);
   },
+  evaluate: (args: { site_att: string; input_date: string; threshold?: number; period?: number; guard?: number }) =>
+    httpPost<{ site_att: string; input_date: string; options: any; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; metrics: Array<any> }>(
+      `/api/evaluate`,
+      args,
+    ),
 };
