@@ -173,7 +173,7 @@ export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: n
     <div className="chart-block">
       {title && <div className="chart-title">{title}</div>}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={wdata} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+        <BarChart data={wdata} margin={{ top: 8, right: 8, bottom: 8, left: 8 }} barCategoryGap="0%" barGap={0}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey={x} minTickGap={24} />
           <YAxis />
@@ -186,7 +186,7 @@ export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: n
             <ReferenceLine key={`vl-${idx}`} x={l.x} stroke={l.stroke || '#111'} strokeDasharray={l.strokeDasharray || '6 6'} strokeWidth={l.strokeWidth || 3} label={l.label} />
           ))}
           {series.map((s, i) => (
-            <Bar key={s} dataKey={s} stackId="a" fill={["#0a84ff", "#ff375f", "#32d74b", "#ffd60a", "#5e5ce6"][i % 5]} />
+            <Bar key={s} dataKey={s} stackId="a" fill={["#0a84ff", "#ff375f", "#32d74b", "#ffd60a", "#5e5ce6"][i % 5]} stroke="none" />
           ))}
         </BarChart>
       </ResponsiveContainer>

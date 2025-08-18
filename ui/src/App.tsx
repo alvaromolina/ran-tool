@@ -23,6 +23,7 @@ function App() {
   const [nbCqi, setNbCqi] = useState<any[]>([])
   const [nbTraffic, setNbTraffic] = useState<any[]>([])
   const [nbVoice, setNbVoice] = useState<any[]>([])
+  const [showSitesModal, setShowSitesModal] = useState(false)
   // Evaluation (M4)
   const [evalLoading, setEvalLoading] = useState(false)
   const [evalResult, setEvalResult] = useState<null | { site_att: string; input_date: string; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; options: any; metrics: any[] }>(null)
@@ -49,6 +50,10 @@ function App() {
     if (center) return [center.latitude, center.longitude] as [number, number]
     return [19.4326, -99.1332] as [number, number] // fallback (CDMX)
   }, [mapGeo])
+
+  const neighborNames = useMemo(() => (
+    (mapGeo || []).filter(g => g.role === 'neighbor').map(g => g.att_name)
+  ), [mapGeo])
 
   // Fit map to markers when data changes
   useEffectReact(() => {
@@ -444,18 +449,6 @@ function App() {
                     <SimpleStackedBar data={siteVoice} title="Voice Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
                   </div>
                   <div className="output-block">
-                    <div className="block-title">Plot05 – Neighbor CQIs</div>
-                    <SimpleLineChart data={nbCqi} title="Neighbor CQIs" loading={loadingNb && fetchedNbOnce} {...common} />
-                  </div>
-                  <div className="output-block">
-                    <div className="block-title">Plot06 – Neighbor Data Traffic</div>
-                    <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" loading={loadingNb && fetchedNbOnce} {...common} />
-                  </div>
-                  <div className="output-block">
-                    <div className="block-title">Plot07 – Neighbor Voice Traffic</div>
-                    <SimpleStackedBar data={nbVoice} title="Neighbor Voice" loading={loadingNb && fetchedNbOnce} {...common} />
-                  </div>
-                  <div className="output-block">
                     <div className="block-title">Plot04 – Map</div>
                     {loadingNb && fetchedNbOnce ? (
                       <div className="chart-loading" style={{ height: 360 }} />
@@ -484,12 +477,40 @@ function App() {
                     ) : (
                       <div className="chart-empty" style={{ height: 360 }}>No neighbor geometry available. Choose a valid site and radius.</div>
                     )}
+                    <div style={{ marginTop: 8 }}>
+                      <button className="btn-grid button-show" onClick={() => setShowSitesModal(true)}>Show sites</button>
+                    </div>
+                  </div>
+                  <div className="output-block">
+                    <div className="block-title">Plot05 – Neighbor CQIs</div>
+                    <SimpleLineChart data={nbCqi} title="Neighbor CQIs" loading={loadingNb && fetchedNbOnce} {...common} />
+                  </div>
+                  <div className="output-block">
+                    <div className="block-title">Plot06 – Neighbor Data Traffic</div>
+                    <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" loading={loadingNb && fetchedNbOnce} {...common} />
+                  </div>
+                  <div className="output-block">
+                    <div className="block-title">Plot07 – Neighbor Voice Traffic</div>
+                    <SimpleStackedBar data={nbVoice} title="Neighbor Voice" loading={loadingNb && fetchedNbOnce} {...common} />
                   </div>
                 </>
               )
             })()}
           </div>
         </section>
+        {showSitesModal && (
+          <div className="modal-backdrop" onClick={() => setShowSitesModal(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-title">Neighbor Sites</div>
+              <div className="modal-body">
+                <textarea readOnly value={neighborNames.join('\n')} onFocus={(e) => e.currentTarget.select()} />
+              </div>
+              <div className="modal-actions">
+                <button className="theme-toggle" onClick={() => setShowSitesModal(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   )

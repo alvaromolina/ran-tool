@@ -262,6 +262,50 @@ html, body, #root { width: 100%; min-height: 100%; }
 [data-theme='light'] .theme-toggle { background: #f8fafc; color: #111827; border-color: #e5e7eb; }
 [data-theme='light'] .theme-toggle:hover { filter: none; background: #eef2f7; }
 
+/* Small utility button for actions under charts */
+.button-show {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+  background: #151515;
+  color: #e5e5e5;
+  cursor: pointer;
+}
+[data-theme='light'] .button-show { background: #f8fafc; color: #111827; border-color: #e5e7eb; }
+
+/* Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal {
+  width: min(640px, 92vw);
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 12px;
+}
+[data-theme='light'] .modal { background: #ffffff; border-color: #e5e7eb; }
+.modal-title { font-weight: 600; margin-bottom: 8px; }
+.modal-body { margin: 8px 0; }
+.modal-body textarea {
+  width: 100%;
+  min-height: 260px;
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+  background: #0b0b0b;
+  color: #e5e5e5;
+  padding: 10px;
+  resize: vertical;
+}
+[data-theme='light'] .modal-body textarea { background: #f9fafb; color: #111827; border-color: #e5e7eb; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+
 /* Light theme overrides */
 [data-theme='dark'] html, [data-theme='dark'] body { background: #0b0b0b; color: #e5e5e5; }
 [data-theme='light'] html, [data-theme='light'] body { background: #fafafa; color: #111827; }
