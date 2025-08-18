@@ -105,6 +105,6 @@ export const api = {
   evaluate: (args: { site_att: string; input_date: string; threshold?: number; period?: number; guard?: number }) =>
     httpPost<{ site_att: string; input_date: string; options: any; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; metrics: Array<any> }>(
       `/api/evaluate`,
-      args,
+      { ...args, debug: true },
     ),
 };
