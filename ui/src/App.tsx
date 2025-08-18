@@ -27,6 +27,8 @@ function App() {
   const [evalLoading, setEvalLoading] = useState(false)
   const [evalResult, setEvalResult] = useState<null | { site_att: string; input_date: string; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; options: any; metrics: any[] }>(null)
   const [evalError, setEvalError] = useState<string | null>(null)
+  const [evalDate, setEvalDate] = useState<string>('')
+  const [evalDateTouched, setEvalDateTouched] = useState<boolean>(false)
   const [evalThreshold, setEvalThreshold] = useState<number>(() => {
     const v = localStorage.getItem('eval.threshold');
     return v != null ? parseFloat(v) : 0.05;
@@ -79,22 +81,33 @@ function App() {
   useEffect(() => { localStorage.setItem('eval.period', String(evalPeriod)) }, [evalPeriod])
   useEffect(() => { localStorage.setItem('eval.guard', String(evalGuard)) }, [evalGuard])
 
-  // Trigger evaluation on site/options change (uses max available date for now)
+  // Prefill input date from ranges when site changes (only if user didn't select a date yet)
+  useEffect(() => {
+    if (!site) { setEvalDate(''); setEvalDateTouched(false); return }
+    let cancelled = false
+    api.ranges(site)
+      .then(r => {
+        if (cancelled) return
+        const suggested = r.max_date || new Date().toISOString().slice(0,10)
+        if (!evalDateTouched) setEvalDate(suggested)
+      })
+      .catch(() => {/* ignore for prefill */})
+    return () => { cancelled = true }
+  }, [site])
+
+  // Trigger evaluation on site/options/date change
   useEffect(() => {
     if (!site) { setEvalResult(null); return }
+    const input_date = (evalDate && /^\d{4}-\d{2}-\d{2}$/.test(evalDate)) ? evalDate : new Date().toISOString().slice(0,10)
     let cancelled = false
     setEvalLoading(true)
     setEvalError(null)
-    api.ranges(site)
-      .then(r => {
-        const input_date = r.max_date || new Date().toISOString().slice(0,10)
-        return api.evaluate({ site_att: site, input_date, threshold: evalThreshold, period: evalPeriod, guard: evalGuard })
-      })
+    api.evaluate({ site_att: site, input_date, threshold: evalThreshold, period: evalPeriod, guard: evalGuard })
       .then(res => { if (!cancelled) setEvalResult(res) })
       .catch(err => { if (!cancelled) setEvalError(String(err)) })
       .finally(() => { if (!cancelled) setEvalLoading(false) })
     return () => { cancelled = true }
-  }, [site, evalThreshold, evalPeriod, evalGuard])
+  }, [site, evalThreshold, evalPeriod, evalGuard, evalDate])
 
   // Debounced site autocomplete
   useEffectReact(() => {
@@ -254,6 +267,14 @@ function App() {
                 step={0.5}
                 value={Math.round(evalThreshold * 10000) / 100}
                 onChange={e => setEvalThreshold(Math.max(0, Math.min(1, (parseFloat(e.target.value) || 0) / 100)))}
+              />
+            </label>
+            <label className="field">
+              <span>Input date</span>
+              <input
+                type="date"
+                value={evalDate}
+                onChange={(e) => { setEvalDate(e.target.value); setEvalDateTouched(true) }}
               />
             </label>
             <label className="field">
