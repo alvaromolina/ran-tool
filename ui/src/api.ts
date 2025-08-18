@@ -107,4 +107,30 @@ export const api = {
       `/api/evaluate`,
       { ...args, debug: true },
     ),
+  reportPdf: async (args: { site_att: string; input_date: string; threshold?: number; period?: number; guard?: number; radius_km?: number; include_debug?: boolean }): Promise<Blob> => {
+    const res = await fetch(`${BASE_URL}/api/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        site_att: args.site_att,
+        input_date: args.input_date,
+        threshold: args.threshold,
+        period: args.period,
+        guard: args.guard,
+        radius_km: args.radius_km,
+        debug: false,
+        include_debug: !!args.include_debug,
+      }),
+    });
+    if (!res.ok) {
+      // Try to parse JSON error from server
+      try {
+        const j = await res.json();
+        throw new Error(j?.error || `HTTP ${res.status}`);
+      } catch {
+        throw new Error(`HTTP ${res.status}`);
+      }
+    }
+    return res.blob();
+  },
 };

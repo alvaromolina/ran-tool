@@ -24,6 +24,7 @@ function App() {
   const [nbTraffic, setNbTraffic] = useState<any[]>([])
   const [nbVoice, setNbVoice] = useState<any[]>([])
   const [showSitesModal, setShowSitesModal] = useState(false)
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
   // Evaluation (M4)
   const [evalLoading, setEvalLoading] = useState(false)
   const [evalResult, setEvalResult] = useState<null | { site_att: string; input_date: string; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; options: any; metrics: any[] }>(null)
@@ -113,6 +114,35 @@ function App() {
       .finally(() => { if (!cancelled) setEvalLoading(false) })
     return () => { cancelled = true }
   }, [site, evalThreshold, evalPeriod, evalGuard, evalDate])
+
+  async function handleDownloadReport() {
+    if (!site) return
+    try {
+      setDownloadingPdf(true)
+      const input_date = (evalDate && /^\d{4}-\d{2}-\d{2}$/.test(evalDate)) ? evalDate : new Date().toISOString().slice(0,10)
+      const blob = await api.reportPdf({
+        site_att: site,
+        input_date,
+        threshold: evalThreshold,
+        period: evalPeriod,
+        guard: evalGuard,
+        radius_km: radiusKm,
+        include_debug: false,
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ran_evaluation_${site}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      alert(`Failed to generate report: ${e}`)
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
 
   // Debounced site autocomplete
   useEffectReact(() => {
@@ -340,6 +370,16 @@ function App() {
                     <span className="badge">{evalResult.overall || 'Inconclusive'}</span>
                     <span className="meta">Date: {evalResult.input_date}</span>
                     <span className="meta">Threshold: {(evalResult.options?.threshold ?? 0.05) * 100}%</span>
+                    <span className="meta">
+                      <button
+                        className="button-show"
+                        onClick={handleDownloadReport}
+                        disabled={downloadingPdf || evalLoading}
+                        title="Download PDF report"
+                      >
+                        {downloadingPdf ? 'Downloading…' : 'Download PDF report'}
+                      </button>
+                    </span>
                   </div>
                   {evalResult.metrics?.length ? (
                     <div className="eval-metrics">
