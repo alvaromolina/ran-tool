@@ -82,9 +82,13 @@ def _range_mean(df: Optional[pd.DataFrame], preferred_cols: List[str]) -> Option
     # Fallback: mean of all numeric columns
     num_df = df.select_dtypes(include=[np.number])
     if num_df.empty:
-        # try coercing any that look numeric
-        num_df = df.apply(pd.to_numeric, errors="ignore")
-        num_df = num_df.select_dtypes(include=[np.number])
+        # coerce object-like numerics
+        coerced = df.apply(lambda s: pd.to_numeric(s, errors="coerce") if s.dtype == object else s)
+        num_df = coerced.select_dtypes(include=[np.number])
+    if num_df.empty:
+        return None
+    # drop columns that are entirely NaN after coercion
+    num_df = num_df.dropna(axis=1, how='all')
     if num_df.empty:
         return None
     m = float(num_df.mean(numeric_only=True).mean())
@@ -146,38 +150,38 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
     to = _date_str(end)
     t0 = time.perf_counter()
     if metric == 'site_cqi':
-        df = _call_with_timeout(get_cqi_daily, 4.0, att_name=site_att, min_date=frm, max_date=to, technology=tech)
+        df = _call_with_timeout(get_cqi_daily, 6.5, att_name=site_att, min_date=frm, max_date=to, technology=tech)
         # select_db_cqi_daily outputs: umts_cqi, lte_cqi, nr_cqi
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'site_data':
-        df = _call_with_timeout(get_traffic_data_daily, 4.0, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
+        df = _call_with_timeout(get_traffic_data_daily, 6.5, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
         val = _range_mean(df, preferred_cols=['ps_gb_uldl', 'traffic_dlul_tb'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'site_voice':
-        df = _call_with_timeout(get_traffic_voice_daily, 4.0, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
+        df = _call_with_timeout(get_traffic_voice_daily, 6.5, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
         val = _range_mean(df, preferred_cols=['traffic_voice'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_cqi':
-        df = _call_with_timeout(get_neighbor_cqi_daily, 4.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
+        df = _call_with_timeout(get_neighbor_cqi_daily, 5.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_data':
-        df = _call_with_timeout(get_neighbor_traffic_data, 4.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
+        df = _call_with_timeout(get_neighbor_traffic_data, 5.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
         val = _range_mean(df, preferred_cols=['ps_gb_uldl', 'traffic_dlul_tb'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_voice':
-        df = _call_with_timeout(get_neighbor_traffic_voice, 4.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
+        df = _call_with_timeout(get_neighbor_traffic_voice, 5.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
         val = _range_mean(df, preferred_cols=['traffic_voice'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
@@ -188,7 +192,7 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
 @router.post("")
 def evaluate(req: EvaluateRequest) -> EvaluateResponse:
     # Define windows per §6
-    max_d = _call_with_timeout(get_max_date, 3.0)
+    max_d = _call_with_timeout(get_max_date, 8.0)
     max_date_source = "db"
     # Fallback: if DB global max is unavailable, try deriving from this site's available data within a bounded window
     if not max_d:
@@ -251,14 +255,16 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
     metrics: List[MetricEvaluation] = []
     debug_timings: Dict[str, float] = {}
 
-    # Build parallel tasks for each metric/window
+    # Build tasks: first site_*, then neighbor_* to run in two phases
     Task = Tuple[str, str, Optional[str], str]  # (name, mkey, tech, window)
-    tasks: List[Task] = []
+    site_tasks: List[Task] = []
+    nb_tasks: List[Task] = []
     for name, mkey, tech in plan:
-        tasks.append((name, mkey, tech, 'before'))
-        tasks.append((name, mkey, tech, 'after'))
+        bucket = site_tasks if mkey.startswith('site_') else nb_tasks
+        bucket.append((name, mkey, tech, 'before'))
+        bucket.append((name, mkey, tech, 'after'))
         if last_start and last_end:
-            tasks.append((name, mkey, tech, 'last'))
+            bucket.append((name, mkey, tech, 'last'))
 
     def run_task(task: Task) -> Tuple[Task, Optional[float], float]:
         name, mkey, tech, window = task
@@ -278,29 +284,41 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
     start_time = time.perf_counter()
     results: Dict[Task, Optional[float]] = {}
 
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=8)
-    try:
-        future_map = {ex.submit(run_task, t): t for t in tasks}
-        for fut in concurrent.futures.as_completed(future_map):
-            task, val, elapsed = fut.result()
-            results[task] = val
-            if req.debug:
-                name, mkey, tech, window = task
-                debug_timings[f"{mkey}:{tech}:{window}"] = elapsed
-            if time.perf_counter() - start_time > GLOBAL_BUDGET_S:
-                print("[evaluate] Global time budget exceeded; returning partial results")
-                # Cancel remaining tasks and shutdown executor without waiting
-                for f in future_map.keys():
-                    if not f.done():
-                        f.cancel()
-                ex.shutdown(wait=False, cancel_futures=True)
-                break
-    finally:
-        # If not already shut down, shut down quickly without waiting for lingering tasks
+    def run_phase(phase_tasks: List[Task]) -> None:
+        nonlocal results
+        if not phase_tasks:
+            return
+        remaining = GLOBAL_BUDGET_S - (time.perf_counter() - start_time)
+        if remaining <= 0:
+            return
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=6)
         try:
-            ex.shutdown(wait=False, cancel_futures=True)
-        except Exception:
-            pass
+            future_map = {ex.submit(run_task, t): t for t in phase_tasks}
+            for fut in concurrent.futures.as_completed(future_map, timeout=remaining if remaining > 0 else None):
+                task, val, elapsed = fut.result()
+                results[task] = val
+                if req.debug:
+                    name, mkey, tech, window = task
+                    debug_timings[f"{mkey}:{tech}:{window}"] = elapsed
+                if time.perf_counter() - start_time > GLOBAL_BUDGET_S:
+                    print("[evaluate] Global time budget exceeded; returning partial results")
+                    for f in future_map.keys():
+                        if not f.done():
+                            f.cancel()
+                    ex.shutdown(wait=False, cancel_futures=True)
+                    return
+        except concurrent.futures.TimeoutError:
+            print("[evaluate] Phase timed out; continuing with partial results")
+        finally:
+            try:
+                ex.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+
+    # Phase 1: site metrics
+    run_phase(site_tasks)
+    # Phase 2: neighbors if time remains
+    run_phase(nb_tasks)
 
     # Assemble metric entries
     for name, mkey, tech in plan:
@@ -346,7 +364,7 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
                 "last": {"from": str(last_start) if last_start else None, "to": str(last_end) if last_end else None},
             },
             "global_budget_s": 25.0,
-            "partial": len({k: v for k, v in results.items() if v is not None}) < len(tasks),
+            "partial": len({k: v for k, v in results.items() if v is not None}) < (len(site_tasks) + len(nb_tasks)),
             **({"debug_timings": debug_timings, "max_date_source": max_date_source} if req.debug else {}),
         },
         overall=overall,  # type: ignore[arg-type]

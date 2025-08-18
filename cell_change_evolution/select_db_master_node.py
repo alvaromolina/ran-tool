@@ -150,11 +150,44 @@ def get_max_date():
                 except Exception as e:
                     print(f"Warning: failed to get UMTS max end_date: {e}")
 
-            # Final result: min of available maxima if both exist; otherwise whichever exists; otherwise None
-            if lte_max and umts_max:
-                final_max = min(lte_max, umts_max)
+            # If both traffic-period maxima are missing, fall back to CQI daily tables (MAX(time))
+            if not lte_max and not umts_max:
+                lte_cqi_exists = connection.execute(text("SELECT to_regclass('public.lte_cqi_daily') IS NOT NULL")).scalar()
+                umts_cqi_exists = connection.execute(text("SELECT to_regclass('public.umts_cqi_daily') IS NOT NULL")).scalar()
+                lte_cqi_max = None
+                umts_cqi_max = None
+                if lte_cqi_exists:
+                    try:
+                        lte_cqi_max = connection.execute(
+                            text("SELECT MAX(date) FROM public.lte_cqi_daily WHERE date IS NOT NULL")
+                        ).scalar()
+                    except Exception as e:
+                        print(f"Warning: failed to get LTE CQI max date: {e}")
+                if umts_cqi_exists:
+                    try:
+                        umts_cqi_max = connection.execute(
+                            text("SELECT MAX(date) FROM public.umts_cqi_daily WHERE date IS NOT NULL")
+                        ).scalar()
+                    except Exception as e:
+                        print(f"Warning: failed to get UMTS CQI max date: {e}")
+                # Normalize to dates if datetimes
+                def _to_date(x):
+                    try:
+                        return x.date() if hasattr(x, 'date') else x
+                    except Exception:
+                        return x
+                lte_cqi_max = _to_date(lte_cqi_max)
+                umts_cqi_max = _to_date(umts_cqi_max)
+                if lte_cqi_max and umts_cqi_max:
+                    final_max = min(lte_cqi_max, umts_cqi_max)
+                else:
+                    final_max = lte_cqi_max or umts_cqi_max or None
             else:
-                final_max = lte_max or umts_max or None
+                # Use traffic-period maxima when available
+                if lte_max and umts_max:
+                    final_max = min(lte_max, umts_max)
+                else:
+                    final_max = lte_max or umts_max or None
 
         print(f"Retrieved max date: {final_max}")
         return final_max
