@@ -246,6 +246,15 @@ function App() {
                 </div>
               )}
             </label>
+
+            <label className="field">
+              <span>Input date</span>
+              <input
+                type="date"
+                value={evalDate}
+                onChange={(e) => { setEvalDate(e.target.value); setEvalDateTouched(true) }}
+              />
+            </label>
             <label className="field">
               <span>Radius (km)</span>
               <input
@@ -257,6 +266,8 @@ function App() {
               />
             </label>
           </div>
+
+          
           <div className="form-row">
             <label className="field">
               <span>Threshold (%)</span>
@@ -269,14 +280,7 @@ function App() {
                 onChange={e => setEvalThreshold(Math.max(0, Math.min(1, (parseFloat(e.target.value) || 0) / 100)))}
               />
             </label>
-            <label className="field">
-              <span>Input date</span>
-              <input
-                type="date"
-                value={evalDate}
-                onChange={(e) => { setEvalDate(e.target.value); setEvalDateTouched(true) }}
-              />
-            </label>
+
             <label className="field">
               <span>Period (days)</span>
               <input
@@ -322,26 +326,41 @@ function App() {
                   </div>
                   {evalResult.metrics?.length ? (
                     <div className="eval-metrics">
-                      <div className="mtable">
-                        <div className="thead">
-                          <div>Name</div>
-                          <div>Δ After/Before</div>
-                          <div>Δ Last/After</div>
-                          <div>Class</div>
-                          <div>Verdict</div>
-                        </div>
-                        <div className="tbody">
-                          {evalResult.metrics.map((m, i) => (
-                            <div className="trow" key={i}>
-                              <div className="cell name">{m.name}</div>
-                              <div className="cell num">{m.delta_after_before != null ? `${(m.delta_after_before*100).toFixed(1)}%` : '—'}</div>
-                              <div className="cell num">{m.delta_last_after != null ? `${(m.delta_last_after*100).toFixed(1)}%` : '—'}</div>
-                              <div className="cell">{m.klass || '—'}</div>
-                              <div className="cell"><span className={`vbadge vb-${(m.verdict||'inconclusive').toLowerCase()}`}>{m.verdict || 'Inconclusive'}</span></div>
+                      {(() => {
+                        const siteMetrics = (evalResult.metrics || []).filter((m: any) => typeof m?.name === 'string' && m.name.startsWith('Site '))
+                        const nbMetrics = (evalResult.metrics || []).filter((m: any) => typeof m?.name === 'string' && m.name.startsWith('Neighbors '))
+                        const Table = ({ title, rows }: { title: string; rows: any[] }) => (
+                          <div className="eval-col">
+                            <div className="col-title">{title}</div>
+                            <div className="mtable">
+                              <div className="thead">
+                                <div>Name</div>
+                                <div>Δ After/Before</div>
+                                <div>Δ Last/After</div>
+                                <div>Class</div>
+                                <div>Verdict</div>
+                              </div>
+                              <div className="tbody">
+                                {rows.map((m: any, i: number) => (
+                                  <div className="trow" key={i}>
+                                    <div className="cell name">{m.name}</div>
+                                    <div className="cell num">{m.delta_after_before != null ? `${(m.delta_after_before*100).toFixed(1)}%` : '—'}</div>
+                                    <div className="cell num">{m.delta_last_after != null ? `${(m.delta_last_after*100).toFixed(1)}%` : '—'}</div>
+                                    <div className="cell">{m.klass || '—'}</div>
+                                    <div className="cell"><span className={`vbadge vb-${(m.verdict||'inconclusive').toLowerCase()}`}>{m.verdict || 'Inconclusive'}</span></div>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                      </div>
+                          </div>
+                        )
+                        return (
+                          <div className="eval-columns">
+                            <Table title="Site" rows={siteMetrics} />
+                            <Table title="Neighbors" rows={nbMetrics} />
+                          </div>
+                        )
+                      })()}
                     </div>
                   ) : null}
                 </>
@@ -353,60 +372,110 @@ function App() {
             )}
           </div>
           <div className="output-grid">
-            <div className="output-block">
-              <div className="block-title">Plot01 – Site CQIs</div>
-              <SimpleLineChart data={siteCqi} title="CQIs" loading={loadingSite && fetchedSiteOnce} />
-            </div>
-            <div className="output-block">
-              <div className="block-title">Plot02 – Site Data Traffic</div>
-              <SimpleStackedBar data={siteTraffic} title="Traffic" loading={loadingSite && fetchedSiteOnce} />
-            </div>
-            <div className="output-block">
-              <div className="block-title">Plot03 – Site Voice Traffic</div>
-              <SimpleStackedBar data={siteVoice} title="Voice Traffic" loading={loadingSite && fetchedSiteOnce} />
-            </div>
-            <div className="output-block">
-              <div className="block-title">Plot05 – Neighbor CQIs</div>
-              <SimpleLineChart data={nbCqi} title="Neighbor CQIs" loading={loadingNb && fetchedNbOnce} />
-            </div>
-            <div className="output-block">
-              <div className="block-title">Plot06 – Neighbor Data Traffic</div>
-              <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" loading={loadingNb && fetchedNbOnce} />
-            </div>
-            <div className="output-block">
-              <div className="block-title">Plot07 – Neighbor Voice Traffic</div>
-              <SimpleStackedBar data={nbVoice} title="Neighbor Voice" loading={loadingNb && fetchedNbOnce} />
-            </div>
-            <div className="output-block">
-              <div className="block-title">Plot04 – Map</div>
-              {loadingNb && fetchedNbOnce ? (
-                <div className="chart-loading" style={{ height: 360 }} />
-              ) : mapGeo.length > 0 ? (
-                <div className="map-wrap">
-                  <MapContainer ref={mapRef} center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-                    {mapGeo.map((g, idx) => (
-                      g.role === 'center' ? (
-                        <CircleMarker key={`c-${idx}`} center={[g.latitude, g.longitude]} radius={8} pathOptions={{ color: '#34c759' }}>
-                          <Popup>Center: {g.att_name}</Popup>
-                        </CircleMarker>
-                      ) : (
-                        <CircleMarker key={`n-${idx}`} center={[g.latitude, g.longitude]} radius={6} pathOptions={{ color: '#0a84ff' }}>
-                          <Popup>Neighbor: {g.att_name}</Popup>
-                        </CircleMarker>
-                      )
-                    ))}
-                    {/* radius circle for context */}
-                    <Circle center={mapCenter} radius={radiusKm * 1000} pathOptions={{ color: '#9aa0a6' }} />
-                  </MapContainer>
-                </div>
-              ) : (
-                <div className="chart-empty" style={{ height: 360 }}>No neighbor geometry available. Choose a valid site and radius.</div>
-              )}
-            </div>
+            {(() => {
+              const inputDate = (evalResult?.input_date || evalDate) as string | undefined
+              const ranges = (evalResult?.options?.ranges || {}) as any
+              // prefer the true last date present in any loaded dataset
+              const dateKeys = ['date','time','day','timestamp']
+              function rowsMaxDate(rows: any[]): number | null {
+                if (!rows || rows.length === 0) return null
+                let best: number | null = null
+                for (const r of rows) {
+                  for (const k of dateKeys) {
+                    if (r && r[k] != null) {
+                      const t = typeof r[k] === 'string' ? Date.parse(r[k]) : (typeof r[k] === 'number' ? r[k] : NaN)
+                      if (!Number.isNaN(t)) best = best == null ? t : Math.max(best, t)
+                      break
+                    }
+                  }
+                }
+                return best
+              }
+              const candidatesNum: Array<number> = []
+              const s1 = rowsMaxDate(siteCqi); if (s1 != null) candidatesNum.push(s1)
+              const s2 = rowsMaxDate(siteTraffic); if (s2 != null) candidatesNum.push(s2)
+              const s3 = rowsMaxDate(siteVoice); if (s3 != null) candidatesNum.push(s3)
+              const n1 = rowsMaxDate(nbCqi); if (n1 != null) candidatesNum.push(n1)
+              const n2 = rowsMaxDate(nbTraffic); if (n2 != null) candidatesNum.push(n2)
+              const n3 = rowsMaxDate(nbVoice); if (n3 != null) candidatesNum.push(n3)
+              const dataMaxStr = candidatesNum.length ? new Date(Math.max(...candidatesNum)).toISOString().slice(0,10) : undefined
+              const maxCandidate = [
+                dataMaxStr,
+                ranges?.last?.to,
+                ranges?.after?.to,
+                ranges?.before?.to,
+              ].filter(Boolean).sort().slice(-1)[0] as string | undefined
+              const xMax = maxCandidate || inputDate
+              const xMin = inputDate ? new Date(new Date(inputDate).getTime() - 30*24*3600*1000).toISOString().slice(0,10) : undefined
+              const lineColor = theme === 'dark' ? '#ffffff' : '#111111'
+              const regionStroke = theme === 'dark' ? '#3ea0ff' : '#0a84ff'
+              const regionFill = theme === 'dark' ? '#2578ff' : '#0a84ff'
+              const regionFillOpacity = theme === 'dark' ? 0.14 : 0.06
+              const regionStrokeWidth = theme === 'dark' ? 2 : 1
+              const vLines = inputDate ? [{ x: inputDate, stroke: lineColor, strokeDasharray: '8 8', strokeWidth: 3 as const, label: '' }] : []
+              const mkRegion = (r?: {from?: string; to?: string}) => (r?.from && r?.to ? { from: r.from, to: r.to, stroke: regionStroke, strokeDasharray: '6 6', strokeWidth: regionStrokeWidth, fill: regionFill, fillOpacity: regionFillOpacity } : null)
+              const mkLastRegion = (r?: {from?: string; to?: string}) => (r?.from && r?.to ? { from: r.from, to: r.to, stroke: regionStroke, strokeDasharray: '6 6', strokeWidth: 2, fill: regionFill, fillOpacity: 0 } : null)
+              const regions = [mkRegion(ranges?.before), mkRegion(ranges?.after), mkLastRegion(ranges?.last)].filter(Boolean) as any[]
+              const common = { xMin, xMax, vLines, regions }
+              return (
+                <>
+                  <div className="output-block">
+                    <div className="block-title">Plot01 – Site CQIs</div>
+                    <SimpleLineChart data={siteCqi} title="CQIs" loading={loadingSite && fetchedSiteOnce} {...common} />
+                  </div>
+                  <div className="output-block">
+                    <div className="block-title">Plot02 – Site Data Traffic</div>
+                    <SimpleStackedBar data={siteTraffic} title="Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
+                  </div>
+                  <div className="output-block">
+                    <div className="block-title">Plot03 – Site Voice Traffic</div>
+                    <SimpleStackedBar data={siteVoice} title="Voice Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
+                  </div>
+                  <div className="output-block">
+                    <div className="block-title">Plot05 – Neighbor CQIs</div>
+                    <SimpleLineChart data={nbCqi} title="Neighbor CQIs" loading={loadingNb && fetchedNbOnce} {...common} />
+                  </div>
+                  <div className="output-block">
+                    <div className="block-title">Plot06 – Neighbor Data Traffic</div>
+                    <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" loading={loadingNb && fetchedNbOnce} {...common} />
+                  </div>
+                  <div className="output-block">
+                    <div className="block-title">Plot07 – Neighbor Voice Traffic</div>
+                    <SimpleStackedBar data={nbVoice} title="Neighbor Voice" loading={loadingNb && fetchedNbOnce} {...common} />
+                  </div>
+                  <div className="output-block">
+                    <div className="block-title">Plot04 – Map</div>
+                    {loadingNb && fetchedNbOnce ? (
+                      <div className="chart-loading" style={{ height: 360 }} />
+                    ) : mapGeo.length > 0 ? (
+                      <div className="map-wrap">
+                        <MapContainer ref={mapRef} center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
+                          <TileLayer
+                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                          />
+                          {mapGeo.map((g, idx) => (
+                            g.role === 'center' ? (
+                              <CircleMarker key={`c-${idx}`} center={[g.latitude, g.longitude]} radius={8} pathOptions={{ color: '#34c759' }}>
+                                <Popup>Center: {g.att_name}</Popup>
+                              </CircleMarker>
+                            ) : (
+                              <CircleMarker key={`n-${idx}`} center={[g.latitude, g.longitude]} radius={6} pathOptions={{ color: '#0a84ff' }}>
+                                <Popup>Neighbor: {g.att_name}</Popup>
+                              </CircleMarker>
+                            )
+                          ))}
+                          {/* radius circle for context */}
+                          <Circle center={mapCenter} radius={radiusKm * 1000} pathOptions={{ color: '#9aa0a6' }} />
+                        </MapContainer>
+                      </div>
+                    ) : (
+                      <div className="chart-empty" style={{ height: 360 }}>No neighbor geometry available. Choose a valid site and radius.</div>
+                    )}
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </section>
       </main>

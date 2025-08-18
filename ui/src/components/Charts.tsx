@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
-  BarChart, Bar
+  BarChart, Bar, ReferenceLine, ReferenceArea
 } from 'recharts';
 
 function pickXKey(rows: any[]): string | null {
@@ -25,10 +25,63 @@ function numericKeys(rows: any[], exclude: string[]): string[] {
   return nums.slice(0, 5); // limit to avoid clutter
 }
 
-export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: number; title?: string; loading?: boolean }>
-  = ({ data, xKey, height = 260, title, loading }) => {
+type VLine = { x: string; stroke?: string; strokeDasharray?: string; strokeWidth?: number; label?: string };
+type Region = { from: string; to: string; stroke?: string; strokeDasharray?: string; strokeWidth?: number; fill?: string; fillOpacity?: number };
+
+function withinWindow(rows: any[], xKey: string, min?: string, max?: string): any[] {
+  if (!rows || rows.length === 0) return rows;
+  if (!min && !max) return rows;
+  const minT = min ? Date.parse(min) : Number.NEGATIVE_INFINITY;
+  const maxT = max ? Date.parse(max) : Number.POSITIVE_INFINITY;
+  return rows.filter(r => {
+    const v = r?.[xKey];
+    const t = typeof v === 'string' ? Date.parse(v) : (typeof v === 'number' ? v : NaN);
+    if (Number.isNaN(t)) return true;
+    return t >= minT && t <= maxT;
+  });
+}
+
+export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: number; title?: string; loading?: boolean; xMin?: string; xMax?: string; vLines?: VLine[]; regions?: Region[] }>
+  = ({ data, xKey, height = 260, title, loading, xMin, xMax, vLines = [], regions = [] }) => {
   const x = xKey || pickXKey(data) || '';
   const series = numericKeys(data, [x]);
+  const wdata = withinWindow(data, x, xMin, xMax);
+  // Build a sorted list of available x values in-window for snapping
+  const xvals = (wdata || []).map(r => r?.[x]).filter(Boolean) as string[];
+  const toT = (s?: string) => (s ? Date.parse(s) : NaN);
+  const uniqSorted = Array.from(new Set(xvals)).sort();
+  function snapToRange(from?: string, to?: string): {x1?: string; x2?: string} {
+    if (!uniqSorted.length) return {};
+    const fT = toT(from); const tT = toT(to);
+    let x1: string | undefined; let x2: string | undefined;
+    if (!Number.isNaN(fT)) {
+      x1 = uniqSorted.find(s => toT(s) >= fT) || uniqSorted[0];
+    }
+    if (!Number.isNaN(tT)) {
+      for (let i = uniqSorted.length - 1; i >= 0; i--) {
+        if (toT(uniqSorted[i]) <= tT) { x2 = uniqSorted[i]; break; }
+      }
+      x2 = x2 || uniqSorted[uniqSorted.length - 1];
+    }
+    return { x1, x2 };
+  }
+  function snapX(xv?: string): string | undefined {
+    if (!xv || !uniqSorted.length) return xv;
+    const target = toT(xv);
+    if (Number.isNaN(target)) return xv;
+    let best = uniqSorted[0];
+    let bestDiff = Math.abs(toT(best) - target);
+    for (const s of uniqSorted) {
+      const d = Math.abs(toT(s) - target);
+      if (d < bestDiff) { best = s; bestDiff = d; }
+    }
+    return best;
+  }
+  const snappedRegions = regions.map(r => {
+    const { x1, x2 } = snapToRange(r.from, r.to);
+    return { ...r, from: x1 || r.from, to: x2 || r.to };
+  });
+  const snappedVLines = vLines.map(l => ({ ...l, x: snapX(l.x) || l.x }));
   if (loading) return (
     <div className="chart-block">
       {title && <div className="chart-title">{title}</div>}
@@ -44,12 +97,18 @@ export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: nu
     <div className="chart-block">
       {title && <div className="chart-title">{title}</div>}
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+        <LineChart data={wdata} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey={x} minTickGap={24} />
           <YAxis />
           <Tooltip />
           <Legend />
+          {snappedRegions.map((r, idx) => (
+            <ReferenceArea key={`reg-${idx}`} x1={r.from} x2={r.to} stroke={r.stroke || '#0a84ff'} strokeDasharray={r.strokeDasharray || '6 6'} strokeWidth={r.strokeWidth} fill={r.fill || '#0a84ff'} fillOpacity={r.fillOpacity ?? 0.06} />
+          ))}
+          {snappedVLines.map((l, idx) => (
+            <ReferenceLine key={`vl-${idx}`} x={l.x} stroke={l.stroke || '#111'} strokeDasharray={l.strokeDasharray || '6 6'} strokeWidth={l.strokeWidth || 3} label={l.label} />
+          ))}
           {series.map((s, i) => (
             <Line key={s} type="monotone" dataKey={s} stroke={["#007aff", "#ff3b30", "#34c759", "#ff9f0a", "#5856d6"][i % 5]} dot={false} strokeWidth={2} />
           ))}
@@ -59,10 +118,46 @@ export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: nu
   );
 };
 
-export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: number; title?: string; loading?: boolean }>
-  = ({ data, xKey, height = 260, title, loading }) => {
+export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: number; title?: string; loading?: boolean; xMin?: string; xMax?: string; vLines?: VLine[]; regions?: Region[] }>
+  = ({ data, xKey, height = 260, title, loading, xMin, xMax, vLines = [], regions = [] }) => {
   const x = xKey || pickXKey(data) || '';
   const series = numericKeys(data, [x]);
+  const wdata = withinWindow(data, x, xMin, xMax);
+  const xvals = (wdata || []).map(r => r?.[x]).filter(Boolean) as string[];
+  const toT = (s?: string) => (s ? Date.parse(s) : NaN);
+  const uniqSorted = Array.from(new Set(xvals)).sort();
+  function snapToRange(from?: string, to?: string): {x1?: string; x2?: string} {
+    if (!uniqSorted.length) return {};
+    const fT = toT(from); const tT = toT(to);
+    let x1: string | undefined; let x2: string | undefined;
+    if (!Number.isNaN(fT)) {
+      x1 = uniqSorted.find(s => toT(s) >= fT) || uniqSorted[0];
+    }
+    if (!Number.isNaN(tT)) {
+      for (let i = uniqSorted.length - 1; i >= 0; i--) {
+        if (toT(uniqSorted[i]) <= tT) { x2 = uniqSorted[i]; break; }
+      }
+      x2 = x2 || uniqSorted[uniqSorted.length - 1];
+    }
+    return { x1, x2 };
+  }
+  function snapX(xv?: string): string | undefined {
+    if (!xv || !uniqSorted.length) return xv;
+    const target = toT(xv);
+    if (Number.isNaN(target)) return xv;
+    let best = uniqSorted[0];
+    let bestDiff = Math.abs(toT(best) - target);
+    for (const s of uniqSorted) {
+      const d = Math.abs(toT(s) - target);
+      if (d < bestDiff) { best = s; bestDiff = d; }
+    }
+    return best;
+  }
+  const snappedRegions = regions.map(r => {
+    const { x1, x2 } = snapToRange(r.from, r.to);
+    return { ...r, from: x1 || r.from, to: x2 || r.to };
+  });
+  const snappedVLines = vLines.map(l => ({ ...l, x: snapX(l.x) || l.x }));
   if (loading) return (
     <div className="chart-block">
       {title && <div className="chart-title">{title}</div>}
@@ -78,12 +173,18 @@ export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: n
     <div className="chart-block">
       {title && <div className="chart-title">{title}</div>}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+        <BarChart data={wdata} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey={x} minTickGap={24} />
           <YAxis />
           <Tooltip />
           <Legend />
+          {snappedRegions.map((r, idx) => (
+            <ReferenceArea key={`reg-${idx}`} x1={r.from} x2={r.to} stroke={r.stroke || '#0a84ff'} strokeDasharray={r.strokeDasharray || '6 6'} strokeWidth={r.strokeWidth} fill={r.fill || '#0a84ff'} fillOpacity={r.fillOpacity ?? 0.06} />
+          ))}
+          {snappedVLines.map((l, idx) => (
+            <ReferenceLine key={`vl-${idx}`} x={l.x} stroke={l.stroke || '#111'} strokeDasharray={l.strokeDasharray || '6 6'} strokeWidth={l.strokeWidth || 3} label={l.label} />
+          ))}
           {series.map((s, i) => (
             <Bar key={s} dataKey={s} stackId="a" fill={["#0a84ff", "#ff375f", "#32d74b", "#ffd60a", "#5e5ce6"][i % 5]} />
           ))}

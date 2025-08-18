@@ -358,3 +358,18 @@ html, body, #root { width: 100%; height: 100%; }
 [data-theme='light'] .vbadge.vb-pass { background: #d1fae5; color: #064e3b; border-color: #a7f3d0; }
 [data-theme='light'] .vbadge.vb-fail { background: #fee2e2; color: #7f1d1d; border-color: #fecaca; }
 [data-theme='light'] .vbadge.vb-restored { background: #dbeafe; color: #1e3a8a; border-color: #bfdbfe; }
+
+/* Two-column layout for evaluation metrics */
+.eval-metrics { width: 100%; }
+.eval-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.eval-col { display: flex; flex-direction: column; gap: 8px; }
+.eval-col .col-title { font-weight: 600; color: #cbd5e1; }
+[data-theme='light'] .eval-col .col-title { color: #111827; }
+
+@media (max-width: 960px) {
+  .eval-columns { grid-template-columns: 1fr; }
+}
