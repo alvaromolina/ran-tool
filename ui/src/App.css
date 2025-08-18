@@ -1,4 +1,4 @@
-html, body, #root { width: 100%; height: 100%; }
+html, body, #root { width: 100%; min-height: 100%; }
 #root {
   max-width: 100%;
   margin: 0;
@@ -247,17 +247,24 @@ html, body, #root { width: 100%; height: 100%; }
 
 /* Theme toggle button */
 .theme-toggle {
-  padding: 8px 12px;
+  padding: 6px;
   border-radius: 8px;
   border: 1px solid #2a2a2a;
   background: #151515;
   color: #e5e5e5;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
+.theme-toggle svg { display: block; }
 .theme-toggle:hover { filter: brightness(1.1); }
+[data-theme='light'] .theme-toggle { background: #f8fafc; color: #111827; border-color: #e5e7eb; }
+[data-theme='light'] .theme-toggle:hover { filter: none; background: #eef2f7; }
 
 /* Light theme overrides */
-[data-theme='light'] body { color: #111827; }
+[data-theme='dark'] html, [data-theme='dark'] body { background: #0b0b0b; color: #e5e5e5; }
+[data-theme='light'] html, [data-theme='light'] body { background: #fafafa; color: #111827; }
 [data-theme='light'] #root { background: #fafafa; }
 [data-theme='light'] .app-header {
   border-color: #e5e7eb;
