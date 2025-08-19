@@ -30,7 +30,6 @@ function App() {
   const [evalResult, setEvalResult] = useState<null | { site_att: string; input_date: string; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; options: any; metrics: any[] }>(null)
   const [evalError, setEvalError] = useState<string | null>(null)
   const [evalDate, setEvalDate] = useState<string>('')
-  const [evalDateTouched, setEvalDateTouched] = useState<boolean>(false)
   const [evalThreshold, setEvalThreshold] = useState<number>(() => {
     const v = localStorage.getItem('eval.threshold');
     return v != null ? parseFloat(v) : 0.05;
@@ -46,6 +45,9 @@ function App() {
 
   const mapRef = useRef<any>(null)
 
+  // A valid evaluation date must be explicitly chosen by the user
+  const isValidEvalDate = useMemo(() => /^\d{4}-\d{2}-\d{2}$/.test(evalDate), [evalDate])
+
   const mapCenter = useMemo(() => {
     const center = mapGeo.find((r) => r.role === 'center')
     if (center) return [center.latitude, center.longitude] as [number, number]
@@ -55,6 +57,18 @@ function App() {
   const neighborNames = useMemo(() => (
     (mapGeo || []).filter(g => g.role === 'neighbor').map(g => g.att_name)
   ), [mapGeo])
+
+  // Build per-technology totals for stacked traffic charts
+  function asTrafficByTech(rows: any[]): any[] {
+    if (!Array.isArray(rows)) return []
+    return rows.map((r) => {
+      const t = r?.time || r?.date || r?.day || r?.timestamp
+      const g3 = (r?.h3g_traffic_d_user_ps_gb || 0) + (r?.e3g_traffic_d_user_ps_gb || 0) + (r?.n3g_traffic_d_user_ps_gb || 0)
+      const g4 = (r?.h4g_traffic_d_user_ps_gb || 0) + (r?.s4g_traffic_d_user_ps_gb || 0) + (r?.e4g_traffic_d_user_ps_gb || 0) + (r?.n4g_traffic_d_user_ps_gb || 0)
+      const g5 = (r?.e5g_nsa_traffic_pdcp_gb_5gendc_4glegn || 0) + (r?.n5g_nsa_traffic_pdcp_gb_5gendc_4glegn || 0) + (r?.e5g_nsa_traffic_pdcp_gb_5gendc_5gleg || 0) + (r?.n5g_nsa_traffic_pdcp_gb_5gendc_5gleg || 0)
+      return { time: t, traffic_3g_gb: g3, traffic_4g_gb: g4, traffic_5g_gb: g5 }
+    })
+  }
 
   // Fit map to markers when data changes
   useEffectReact(() => {
@@ -87,24 +101,15 @@ function App() {
   useEffect(() => { localStorage.setItem('eval.period', String(evalPeriod)) }, [evalPeriod])
   useEffect(() => { localStorage.setItem('eval.guard', String(evalGuard)) }, [evalGuard])
 
-  // Prefill input date from ranges when site changes (only if user didn't select a date yet)
+  // When site changes, require user to choose a date explicitly
   useEffect(() => {
-    if (!site) { setEvalDate(''); setEvalDateTouched(false); return }
-    let cancelled = false
-    api.ranges(site)
-      .then(r => {
-        if (cancelled) return
-        const suggested = r.max_date || new Date().toISOString().slice(0,10)
-        if (!evalDateTouched) setEvalDate(suggested)
-      })
-      .catch(() => {/* ignore for prefill */})
-    return () => { cancelled = true }
+    setEvalDate('')
   }, [site])
 
-  // Trigger evaluation on site/options/date change
+  // Trigger evaluation only when site and a valid date have been chosen
   useEffect(() => {
-    if (!site) { setEvalResult(null); return }
-    const input_date = (evalDate && /^\d{4}-\d{2}-\d{2}$/.test(evalDate)) ? evalDate : new Date().toISOString().slice(0,10)
+    if (!site || !isValidEvalDate) { setEvalResult(null); return }
+    const input_date = evalDate
     let cancelled = false
     setEvalLoading(true)
     setEvalError(null)
@@ -113,13 +118,13 @@ function App() {
       .catch(err => { if (!cancelled) setEvalError(String(err)) })
       .finally(() => { if (!cancelled) setEvalLoading(false) })
     return () => { cancelled = true }
-  }, [site, evalThreshold, evalPeriod, evalGuard, evalDate])
+  }, [site, evalThreshold, evalPeriod, evalGuard, evalDate, isValidEvalDate])
 
   async function handleDownloadReport() {
-    if (!site) return
+    if (!site || !isValidEvalDate) return
     try {
       setDownloadingPdf(true)
-      const input_date = (evalDate && /^\d{4}-\d{2}-\d{2}$/.test(evalDate)) ? evalDate : new Date().toISOString().slice(0,10)
+      const input_date = evalDate
       const blob = await api.reportPdf({
         site_att: site,
         input_date,
@@ -170,10 +175,10 @@ function App() {
   const [fetchedSiteOnce, setFetchedSiteOnce] = useState(false)
   const [fetchedNbOnce, setFetchedNbOnce] = useState(false)
 
-  // Auto-fetch site datasets when a valid site is set
+  // Auto-fetch site datasets only when site and a valid date are set
   useEffectReact(() => {
     const s = site?.trim()
-    if (!s || s.length < 2) return
+    if (!s || s.length < 2 || !isValidEvalDate) return
     let cancelled = false
     ;(async () => {
       try {
@@ -185,12 +190,12 @@ function App() {
         setFetchedSiteOnce(true)
         const [cqi, traffic, voice] = await Promise.all([
           api.cqi(s, {}),
-          api.traffic(s, { technology: '4G' }),
+          api.traffic(s, {}),
           api.voice(s, { technology: '4G' }),
         ])
         if (cancelled) return
         setSiteCqi(Array.isArray(cqi) ? cqi : [])
-        setSiteTraffic(Array.isArray(traffic) ? traffic : [])
+        setSiteTraffic(Array.isArray(traffic) ? asTrafficByTech(traffic) : [])
         setSiteVoice(Array.isArray(voice) ? voice : [])
       } catch (e: any) {
         if (!cancelled) setError(String(e))
@@ -199,12 +204,12 @@ function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [site])
+  }, [site, isValidEvalDate])
 
-  // Auto-fetch neighbor datasets (including geo) when site or radius changes
+  // Auto-fetch neighbor datasets (including geo) only when site and a valid date are set
   useEffectReact(() => {
     const s = site?.trim()
-    if (!s || s.length < 2) return
+    if (!s || s.length < 2 || !isValidEvalDate) return
     let cancelled = false
     ;(async () => {
       try {
@@ -217,13 +222,13 @@ function App() {
         const [geo, cqi, traffic, voice] = await Promise.all([
           api.neighborsGeo(s, { radius_km: radiusKm }),
           api.neighborsCqi(s, { technology: '4G', radius_km: radiusKm }),
-          api.neighborsTraffic(s, { technology: '4G', radius_km: radiusKm }),
+          api.neighborsTraffic(s, { radius_km: radiusKm }),
           api.neighborsVoice(s, { technology: '4G', radius_km: radiusKm }),
         ])
         if (cancelled) return
         setMapGeo(Array.isArray(geo) ? geo : [])
         setNbCqi(Array.isArray(cqi) ? cqi : [])
-        setNbTraffic(Array.isArray(traffic) ? traffic : [])
+        setNbTraffic(Array.isArray(traffic) ? asTrafficByTech(traffic) : [])
         setNbVoice(Array.isArray(voice) ? voice : [])
         setFetchedNbOnce(true)
       } catch (e: any) {
@@ -233,7 +238,7 @@ function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [site, radiusKm])
+  }, [site, radiusKm, isValidEvalDate])
 
   return (
     <div className="app">
@@ -299,7 +304,7 @@ function App() {
               <input
                 type="date"
                 value={evalDate}
-                onChange={(e) => { setEvalDate(e.target.value); setEvalDateTouched(true) }}
+                onChange={(e) => { setEvalDate(e.target.value) }}
               />
             </label>
             <label className="field">
@@ -374,7 +379,7 @@ function App() {
                       <button
                         className="button-show"
                         onClick={handleDownloadReport}
-                        disabled={downloadingPdf || evalLoading}
+                        disabled={downloadingPdf || evalLoading || !isValidEvalDate}
                         title="Download PDF report"
                       >
                         {downloadingPdf ? 'Downloading…' : 'Download PDF report'}
