@@ -70,6 +70,17 @@ function App() {
     })
   }
 
+  // Build voice series: 3G CS vs VoLTE
+  function asVoice3GVolte(rows: any[]): any[] {
+    if (!Array.isArray(rows)) return []
+    return rows.map((r) => {
+      const t = r?.time || r?.date || r?.day || r?.timestamp
+      const volte = (r?.user_traffic_volte_e || 0) + (r?.user_traffic_volte_h || 0) + (r?.user_traffic_volte_n || 0) + (r?.user_traffic_volte_s || 0)
+      const cs3g = (r?.h3g_traffic_v_user_cs || 0) + (r?.e3g_traffic_v_user_cs || 0) + (r?.n3g_traffic_v_user_cs || 0)
+      return { time: t, voice_3g_cs: cs3g, voice_volte: volte }
+    })
+  }
+
   // Fit map to markers when data changes
   useEffectReact(() => {
     if (!mapRef.current || mapGeo.length === 0) return
@@ -191,12 +202,12 @@ function App() {
         const [cqi, traffic, voice] = await Promise.all([
           api.cqi(s, {}),
           api.traffic(s, {}),
-          api.voice(s, { technology: '4G' }),
+          api.voice(s, {}),
         ])
         if (cancelled) return
         setSiteCqi(Array.isArray(cqi) ? cqi : [])
         setSiteTraffic(Array.isArray(traffic) ? asTrafficByTech(traffic) : [])
-        setSiteVoice(Array.isArray(voice) ? voice : [])
+        setSiteVoice(Array.isArray(voice) ? asVoice3GVolte(voice) : [])
       } catch (e: any) {
         if (!cancelled) setError(String(e))
       } finally {
@@ -223,13 +234,13 @@ function App() {
           api.neighborsGeo(s, { radius_km: radiusKm }),
           api.neighborsCqi(s, { technology: '4G', radius_km: radiusKm }),
           api.neighborsTraffic(s, { radius_km: radiusKm }),
-          api.neighborsVoice(s, { technology: '4G', radius_km: radiusKm }),
+          api.neighborsVoice(s, { radius_km: radiusKm }),
         ])
         if (cancelled) return
         setMapGeo(Array.isArray(geo) ? geo : [])
         setNbCqi(Array.isArray(cqi) ? cqi : [])
         setNbTraffic(Array.isArray(traffic) ? asTrafficByTech(traffic) : [])
-        setNbVoice(Array.isArray(voice) ? voice : [])
+        setNbVoice(Array.isArray(voice) ? asVoice3GVolte(voice) : [])
         setFetchedNbOnce(true)
       } catch (e: any) {
         if (!cancelled) setError(String(e))
