@@ -119,6 +119,20 @@ html, body, #root { width: 100%; min-height: 100%; }
   color: #e5e5e5;
 }
 
+/* Ensure the native calendar icon is visible in both themes */
+.field input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 1;
+  cursor: pointer;
+}
+[data-theme='dark'] .field input[type="date"]::-webkit-calendar-picker-indicator {
+  /* lighten icon for dark background */
+  filter: invert(1) brightness(1.2);
+}
+[data-theme='light'] .field input[type="date"]::-webkit-calendar-picker-indicator {
+  /* darken icon for light background */
+  filter: invert(0) brightness(0.3) contrast(1.2);
+}
+
 /* Autocomplete */
 .suggest {
   position: relative;

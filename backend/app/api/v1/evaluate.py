@@ -195,19 +195,19 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_cqi':
-        df = _call_with_timeout(get_neighbor_cqi_daily, 5.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
+        df = _call_with_timeout(get_neighbor_cqi_daily, 10.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_data':
-        df = _call_with_timeout(get_neighbor_traffic_data, 5.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
+        df = _call_with_timeout(get_neighbor_traffic_data, 10.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
         val = _range_mean(df, preferred_cols=[])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_voice':
-        df = _call_with_timeout(get_neighbor_traffic_voice, 5.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
+        df = _call_with_timeout(get_neighbor_traffic_voice, 10.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
         val = _range_mean(df, preferred_cols=[])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
@@ -228,7 +228,7 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
         candidates: list = []
         # We purposefully keep tight timeouts to avoid stalls
         try:
-            df1 = _call_with_timeout(get_cqi_daily, 3.5, att_name=req.site_att, min_date=str(probe_min), max_date=str(probe_max), technology=None)
+            df1 = _call_with_timeout(get_cqi_daily, 10, att_name=req.site_att, min_date=str(probe_min), max_date=str(probe_max), technology=None)
             if isinstance(df1, pd.DataFrame) and not df1.empty and 'time' in df1.columns:
                 tmax = pd.to_datetime(df1['time'], errors='coerce').max()
                 if pd.notna(tmax):
@@ -236,7 +236,7 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
         except Exception:
             pass
         try:
-            df2 = _call_with_timeout(get_traffic_data_daily, 3.5, att_name=req.site_att, min_date=str(probe_min), max_date=str(probe_max), technology=None, vendor=None)
+            df2 = _call_with_timeout(get_traffic_data_daily, 10, att_name=req.site_att, min_date=str(probe_min), max_date=str(probe_max), technology=None, vendor=None)
             if isinstance(df2, pd.DataFrame) and not df2.empty and 'time' in df2.columns:
                 tmax = pd.to_datetime(df2['time'], errors='coerce').max()
                 if pd.notna(tmax):
@@ -244,7 +244,7 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
         except Exception:
             pass
         try:
-            df3 = _call_with_timeout(get_traffic_voice_daily, 3.5, att_name=req.site_att, min_date=str(probe_min), max_date=str(probe_max), technology=None, vendor=None)
+            df3 = _call_with_timeout(get_traffic_voice_daily, 10, att_name=req.site_att, min_date=str(probe_min), max_date=str(probe_max), technology=None, vendor=None)
             if isinstance(df3, pd.DataFrame) and not df3.empty and 'time' in df3.columns:
                 tmax = pd.to_datetime(df3['time'], errors='coerce').max()
                 if pd.notna(tmax):

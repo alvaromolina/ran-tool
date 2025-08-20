@@ -11,6 +11,8 @@ function App() {
   const [health, setHealth] = useState<string>('checking...')
   const [theme, setTheme] = useState<'dark'|'light'>(() => (localStorage.getItem('theme') as 'dark'|'light') || 'dark')
   const [site, setSite] = useState<string>('')
+  // Site must be explicitly selected from suggestions; free-typed text won't trigger API calls
+  const [selectedSite, setSelectedSite] = useState<string>('')
   const [isValidSite, setIsValidSite] = useState<boolean>(false)
   const [siteSuggestions, setSiteSuggestions] = useState<string[]>([])
   const [siteLoading, setSiteLoading] = useState(false)
@@ -27,7 +29,6 @@ function App() {
   const [nbTraffic, setNbTraffic] = useState<any[]>([])
   const [nbVoice, setNbVoice] = useState<any[]>([])
   const [showSitesModal, setShowSitesModal] = useState(false)
-  const [downloadingPdf, setDownloadingPdf] = useState(false)
   const [downloadingOutputsPdf, setDownloadingOutputsPdf] = useState(false)
   // Evaluation (M4)
   const [evalLoading, setEvalLoading] = useState(false)
@@ -179,48 +180,21 @@ function App() {
   useEffect(() => { localStorage.setItem('eval.guard', String(evalGuard)) }, [evalGuard])
 
 
-  // Trigger evaluation only when a valid site and a valid date have been chosen
+  // Trigger evaluation only when a selected site and a valid date have been chosen
   useEffect(() => {
-    if (!isValidSite || !isValidEvalDate) { setEvalResult(null); return }
+    const s = selectedSite?.trim()
+    if (!s || !isValidSite || !isValidEvalDate) { setEvalResult(null); return }
     const input_date = evalDate
     let cancelled = false
     setEvalLoading(true)
     setEvalError(null)
-    api.evaluate({ site_att: site, input_date, threshold: evalThreshold, period: evalPeriod, guard: evalGuard })
+    api.evaluate({ site_att: s, input_date, threshold: evalThreshold, period: evalPeriod, guard: evalGuard })
       .then(res => { if (!cancelled) setEvalResult(res) })
       .catch(err => { if (!cancelled) setEvalError(String(err)) })
       .finally(() => { if (!cancelled) setEvalLoading(false) })
     return () => { cancelled = true }
-  }, [site, evalThreshold, evalPeriod, evalGuard, evalDate, isValidEvalDate, isValidSite])
+  }, [selectedSite, evalThreshold, evalPeriod, evalGuard, evalDate, isValidEvalDate, isValidSite])
 
-  async function handleDownloadReport() {
-    if (!isValidSite || !isValidEvalDate) return
-    try {
-      setDownloadingPdf(true)
-      const input_date = evalDate
-      const blob = await api.reportPdf({
-        site_att: site,
-        input_date,
-        threshold: evalThreshold,
-        period: evalPeriod,
-        guard: evalGuard,
-        radius_km: radiusKm,
-        include_debug: false,
-      })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `ran_evaluation_${site}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch (e) {
-      alert(`Failed to generate report: ${e}`)
-    } finally {
-      setDownloadingPdf(false)
-    }
-  }
 
   // Debounced site autocomplete
   useEffectReact(() => {
@@ -246,7 +220,7 @@ function App() {
 
   // Validate the selected site against backend; only then allow API calls
   useEffectReact(() => {
-    const s = site?.trim()
+    const s = selectedSite?.trim()
     if (!s || s.length < 2) { setIsValidSite(false); return }
     let cancelled = false
     ;(async () => {
@@ -259,15 +233,15 @@ function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [site])
+  }, [selectedSite])
 
   // Track whether we've fetched at least once to decide loader vs empty-state
   const [fetchedSiteOnce, setFetchedSiteOnce] = useState(false)
   const [fetchedNbOnce, setFetchedNbOnce] = useState(false)
 
-  // Auto-fetch site datasets only when a valid site and a valid date are set
+  // Auto-fetch site datasets only when a selected site and a valid date are set
   useEffectReact(() => {
-    const s = site?.trim()
+    const s = selectedSite?.trim()
     if (!isValidSite || !isValidEvalDate) return
     let cancelled = false
     ;(async () => {
@@ -294,11 +268,11 @@ function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [site, isValidEvalDate, isValidSite])
+  }, [selectedSite, isValidEvalDate, isValidSite])
 
-  // Auto-fetch neighbor datasets (including geo) only when a valid site and a valid date are set
+  // Auto-fetch neighbor datasets (including geo) only when a selected site and a valid date are set
   useEffectReact(() => {
-    const s = site?.trim()
+    const s = selectedSite?.trim()
     if (!isValidSite || !isValidEvalDate) return
     let cancelled = false
     ;(async () => {
@@ -329,7 +303,7 @@ function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [site, radiusKm, isValidEvalDate, isValidSite])
+  }, [selectedSite, radiusKm, isValidEvalDate, isValidSite])
 
   return (
     <div className="app">
@@ -367,7 +341,7 @@ function App() {
               <span>Site ATT</span>
               <input
                 value={site}
-                onChange={(e) => setSite(e.target.value)}
+                onChange={(e) => { setSite(e.target.value); setSelectedSite(''); setIsValidSite(false); }}
                 placeholder="SITE_ID"
               />
               {(siteLoading || siteSuggestions.length > 0) && (
@@ -379,7 +353,7 @@ function App() {
                         <div
                           key={s}
                           className="suggest-item"
-                          onClick={() => { setSite(s); setSiteSuggestions([]) }}
+                          onClick={() => { setSite(s); setSelectedSite(s); setSiteSuggestions([]) }}
                         >
                           {s}
                         </div>
