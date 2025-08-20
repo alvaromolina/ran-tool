@@ -149,7 +149,7 @@ def render_html(resp: dict, include_debug: bool, chart_images: List[Tuple[str, O
         "<table>",
         "<thead><tr>"
         "<th>Name</th><th class=num>Before</th><th class=num>After</th><th class=num>Last</th>"
-        "<th class=num>Δ After/Before</th><th class=num>Δ Last/After</th>"
+        "<th class=num>Δ After/Before</th><th class=num>Δ Last/Before</th>"
         "<th>Class</th><th>Verdict</th>"
         "</tr></thead>",
         "<tbody>",
@@ -162,7 +162,7 @@ def render_html(resp: dict, include_debug: bool, chart_images: List[Tuple[str, O
             f"<td class=num>{fmt(m.get('after_mean'))}</td>"
             f"<td class=num>{fmt(m.get('last_mean'))}</td>"
             f"<td class=num>{pct(m.get('delta_after_before'))}</td>"
-            f"<td class=num>{pct(m.get('delta_last_after'))}</td>"
+            f"<td class=num>{pct(m.get('delta_last_before'))}</td>"
             f"<td>{m.get('klass','')}</td>"
             f"<td>{m.get('verdict','')}</td>"
             "</tr>"

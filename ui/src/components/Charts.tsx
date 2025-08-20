@@ -52,16 +52,34 @@ export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: nu
   const uniqSorted = Array.from(new Set(xvals)).sort();
   function snapToRange(from?: string, to?: string): {x1?: string; x2?: string} {
     if (!uniqSorted.length) return {};
+    const minX = uniqSorted[0];
+    const maxX = uniqSorted[uniqSorted.length - 1];
     const fT = toT(from); const tT = toT(to);
     let x1: string | undefined; let x2: string | undefined;
     if (!Number.isNaN(fT)) {
-      x1 = uniqSorted.find(s => toT(s) >= fT) || uniqSorted[0];
+      // if window starts after all data, clamp to last x; if before all, clamp to first matching >=
+      if (fT > toT(maxX)) {
+        x1 = maxX;
+      } else {
+        x1 = uniqSorted.find(s => toT(s) >= fT) || minX;
+      }
     }
     if (!Number.isNaN(tT)) {
-      for (let i = uniqSorted.length - 1; i >= 0; i--) {
-        if (toT(uniqSorted[i]) <= tT) { x2 = uniqSorted[i]; break; }
+      // if window ends before all data, clamp to first x; else pick last <= to
+      if (tT < toT(minX)) {
+        x2 = minX;
+      } else {
+        for (let i = uniqSorted.length - 1; i >= 0; i--) {
+          if (toT(uniqSorted[i]) <= tT) { x2 = uniqSorted[i]; break; }
+        }
+        x2 = x2 || maxX;
       }
-      x2 = x2 || uniqSorted[uniqSorted.length - 1];
+    }
+    // If clamped outside range, ensure x1 <= x2 by collapsing to nearest edge
+    if (x1 && x2 && toT(x1) > toT(x2)) {
+      if (toT(x1) > toT(maxX)) { x1 = maxX; x2 = maxX; }
+      else if (toT(x2) < toT(minX)) { x1 = minX; x2 = minX; }
+      else { x1 = x2; }
     }
     return { x1, x2 };
   }
@@ -128,16 +146,31 @@ export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: n
   const uniqSorted = Array.from(new Set(xvals)).sort();
   function snapToRange(from?: string, to?: string): {x1?: string; x2?: string} {
     if (!uniqSorted.length) return {};
+    const minX = uniqSorted[0];
+    const maxX = uniqSorted[uniqSorted.length - 1];
     const fT = toT(from); const tT = toT(to);
     let x1: string | undefined; let x2: string | undefined;
     if (!Number.isNaN(fT)) {
-      x1 = uniqSorted.find(s => toT(s) >= fT) || uniqSorted[0];
+      if (fT > toT(maxX)) {
+        x1 = maxX;
+      } else {
+        x1 = uniqSorted.find(s => toT(s) >= fT) || minX;
+      }
     }
     if (!Number.isNaN(tT)) {
-      for (let i = uniqSorted.length - 1; i >= 0; i--) {
-        if (toT(uniqSorted[i]) <= tT) { x2 = uniqSorted[i]; break; }
+      if (tT < toT(minX)) {
+        x2 = minX;
+      } else {
+        for (let i = uniqSorted.length - 1; i >= 0; i--) {
+          if (toT(uniqSorted[i]) <= tT) { x2 = uniqSorted[i]; break; }
+        }
+        x2 = x2 || maxX;
       }
-      x2 = x2 || uniqSorted[uniqSorted.length - 1];
+    }
+    if (x1 && x2 && toT(x1) > toT(x2)) {
+      if (toT(x1) > toT(maxX)) { x1 = maxX; x2 = maxX; }
+      else if (toT(x2) < toT(minX)) { x1 = minX; x2 = minX; }
+      else { x1 = x2; }
     }
     return { x1, x2 };
   }

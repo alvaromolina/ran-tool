@@ -45,7 +45,7 @@ class MetricEvaluation(BaseModel):
     after_mean: Optional[float]
     last_mean: Optional[float]
     delta_after_before: Optional[float]
-    delta_last_after: Optional[float]
+    delta_last_before: Optional[float]
     klass: Optional[MetricClass]
     verdict: Optional[Literal["Pass", "Fail", "Restored", "Inconclusive"]]
 
@@ -76,10 +76,12 @@ def _range_mean(df: Optional[pd.DataFrame], preferred_cols: List[str]) -> Option
     for col in preferred_cols:
         if col in df.columns:
             s = pd.to_numeric(df[col], errors="coerce")
+            # Ignore zeros by treating them as missing
+            s = s.replace(0, np.nan)
             val = float(s.mean()) if s.notna().any() else None
             if val is not None and not np.isnan(val):
                 return val
-    # Fallback: mean of all numeric columns
+    # Fallback: sum across available numeric columns per row, then average that series
     num_df = df.select_dtypes(include=[np.number])
     if num_df.empty:
         # coerce object-like numerics
@@ -88,10 +90,15 @@ def _range_mean(df: Optional[pd.DataFrame], preferred_cols: List[str]) -> Option
     if num_df.empty:
         return None
     # drop columns that are entirely NaN after coercion
-    num_df = num_df.dropna(axis=1, how='all')
+    # also ignore zeros by converting them to NaN before aggregation/averaging
+    num_df = num_df.replace(0, np.nan).dropna(axis=1, how='all')
     if num_df.empty:
         return None
-    m = float(num_df.mean(numeric_only=True).mean())
+    # Compute row-wise sums over available values. If a row has no valid values, keep it as NaN
+    has_any = num_df.notna().any(axis=1)
+    row_sums = num_df.fillna(0).sum(axis=1)
+    row_sums = row_sums.where(has_any, np.nan)
+    m = float(row_sums.mean())
     return None if np.isnan(m) else m
 
 
@@ -165,13 +172,25 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
         return val
     if metric == 'site_data':
         df = _call_with_timeout(get_traffic_data_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
-        val = _range_mean(df, preferred_cols=['ps_gb_uldl', 'traffic_dlul_tb'])
+        print(tech)
+ 
+        columns_to_keep = [
+            "h3g_traffic_d_user_ps_gb",
+            "e3g_traffic_d_user_ps_gb",
+            "n3g_traffic_d_user_ps_gb"
+        ]
+
+        df_selected = df[columns_to_keep]
+
+        print(df_selected)
+        val = _range_mean(df, preferred_cols=[])
+        print(val)
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'site_voice':
         df = _call_with_timeout(get_traffic_voice_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
-        val = _range_mean(df, preferred_cols=['traffic_voice'])
+        val = _range_mean(df, preferred_cols=[])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
@@ -183,13 +202,13 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
         return val
     if metric == 'nb_data':
         df = _call_with_timeout(get_neighbor_traffic_data, 5.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
-        val = _range_mean(df, preferred_cols=['ps_gb_uldl', 'traffic_dlul_tb'])
+        val = _range_mean(df, preferred_cols=[])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_voice':
         df = _call_with_timeout(get_neighbor_traffic_voice, 5.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
-        val = _range_mean(df, preferred_cols=['traffic_voice'])
+        val = _range_mean(df, preferred_cols=[])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
@@ -333,15 +352,15 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
         a = results.get((name, mkey, tech, 'after'))
         l = results.get((name, mkey, tech, 'last')) if (last_start and last_end) else None
         d_ab = _delta(a, b)
-        d_la = _delta(l, a)
-        klass, verdict = _classify(d_ab, d_la, req.threshold)
+        d_lb = _delta(l, b)
+        klass, verdict = _classify(d_ab, d_lb, req.threshold)
         metrics.append(MetricEvaluation(
             name=name,
             before_mean=b,
             after_mean=a,
             last_mean=l,
             delta_after_before=d_ab,
-            delta_last_after=d_la,
+            delta_last_before=d_lb,
             klass=klass,
             verdict=verdict,  # type: ignore[arg-type]
         ))

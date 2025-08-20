@@ -246,7 +246,8 @@ function App() {
         setFetchedNbOnce(true)
         const [geo, cqi, traffic, voice] = await Promise.all([
           api.neighborsGeo(s, { radius_km: radiusKm }),
-          api.neighborsCqi(s, { technology: '4G', radius_km: radiusKm }),
+          // request all technologies (backend returns lte_cqi, nr_cqi, umts_cqi)
+          api.neighborsCqi(s, { radius_km: radiusKm }),
           api.neighborsTraffic(s, { radius_km: radiusKm }),
           api.neighborsVoice(s, { radius_km: radiusKm }),
         ])
@@ -423,7 +424,7 @@ function App() {
                               <div className="thead">
                                 <div>Name</div>
                                 <div>Δ After/Before</div>
-                                <div>Δ Last/After</div>
+                                <div>Δ Last/Before</div>
                                 <div>Class</div>
                                 <div>Verdict</div>
                               </div>
@@ -432,7 +433,7 @@ function App() {
                                   <div className="trow" key={i}>
                                     <div className="cell name">{m.name}</div>
                                     <div className="cell num">{m.delta_after_before != null ? `${(m.delta_after_before*100).toFixed(1)}%` : '—'}</div>
-                                    <div className="cell num">{m.delta_last_after != null ? `${(m.delta_last_after*100).toFixed(1)}%` : '—'}</div>
+                                    <div className="cell num">{m.delta_last_before   != null ? `${(m.delta_last_before*100).toFixed(1)}%` : '—'}</div>
                                     <div className="cell">{m.klass || '—'}</div>
                                     <div className="cell"><span className={`vbadge vb-${(m.verdict||'inconclusive').toLowerCase()}`}>{m.verdict || 'Inconclusive'}</span></div>
                                   </div>
