@@ -4,6 +4,8 @@ import { api } from './api'
 import { MapContainer, TileLayer, CircleMarker, Popup, Circle } from 'react-leaflet'
 import { useRef, useEffect as useEffectReact } from 'react'
 import { SimpleLineChart, SimpleStackedBar } from './components/Charts'
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
 
 function App() {
   const [health, setHealth] = useState<string>('checking...')
@@ -26,6 +28,7 @@ function App() {
   const [nbVoice, setNbVoice] = useState<any[]>([])
   const [showSitesModal, setShowSitesModal] = useState(false)
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [downloadingOutputsPdf, setDownloadingOutputsPdf] = useState(false)
   // Evaluation (M4)
   const [evalLoading, setEvalLoading] = useState(false)
   const [evalResult, setEvalResult] = useState<null | { site_att: string; input_date: string; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; options: any; metrics: any[] }>(null)
@@ -45,6 +48,7 @@ function App() {
   })
 
   const mapRef = useRef<any>(null)
+  const outputsRef = useRef<HTMLElement | null>(null)
 
   // A valid evaluation date must be explicitly chosen by the user
   const isValidEvalDate = useMemo(() => /^\d{4}-\d{2}-\d{2}$/.test(evalDate), [evalDate])
@@ -69,6 +73,36 @@ function App() {
       const g5 = (r?.e5g_nsa_traffic_pdcp_gb_5gendc_4glegn || 0) + (r?.n5g_nsa_traffic_pdcp_gb_5gendc_4glegn || 0) + (r?.e5g_nsa_traffic_pdcp_gb_5gendc_5gleg || 0) + (r?.n5g_nsa_traffic_pdcp_gb_5gendc_5gleg || 0)
       return { time: t, traffic_3g_gb: g3, traffic_4g_gb: g4, traffic_5g_gb: g5 }
     })
+  }
+
+  async function handleDownloadOutputsPdf() {
+    if (!outputsRef.current) return
+    try {
+      setDownloadingOutputsPdf(true)
+      const element = outputsRef.current
+      const canvas = await html2canvas(element, { scale: 2, useCORS: true, allowTaint: true })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF('p', 'pt', 'a4')
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const imgWidth = pageWidth
+      const imgHeight = canvas.height * imgWidth / canvas.width
+      let heightLeft = imgHeight
+      let position = 0
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
+      while (heightLeft > 0) {
+        position = -(imgHeight - heightLeft)
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
+      }
+      pdf.save('report.pdf')
+    } catch (e) {
+      alert(`Failed to generate outputs PDF: ${e}`)
+    } finally {
+      setDownloadingOutputsPdf(false)
+    }
   }
 
   // Build voice series: 3G CS vs VoLTE
@@ -387,7 +421,7 @@ function App() {
           {error && <div className="note error">{error}</div>}
         </section>
 
-        <section className="panel outputs">
+        <section className="panel outputs" ref={outputsRef}>
           <div className={`evaluation-banner ${evalResult?.overall ? `is-${evalResult.overall.toLowerCase()}` : ''}`}>
             {site ? (
               evalLoading ? (
@@ -404,11 +438,11 @@ function App() {
                     <span className="meta">
                       <button
                         className="button-show"
-                        onClick={handleDownloadReport}
-                        disabled={downloadingPdf || evalLoading || !isValidEvalDate || !isValidSite}
-                        title="Download PDF report"
+                        onClick={handleDownloadOutputsPdf}
+                        disabled={downloadingOutputsPdf}
+                        title="Generate PDF"
                       >
-                        {downloadingPdf ? 'Downloading…' : 'Download PDF report'}
+                        {downloadingOutputsPdf ? 'Generating…' : 'Generate PDF'}
                       </button>
                     </span>
                   </div>
