@@ -385,7 +385,7 @@ html, body, #root { width: 100%; min-height: 100%; }
   padding-bottom: 6px;
   margin-top: 4px;
 }
-.evaluation-banner .tbody { display: grid; gap: 6px; margin-top: 8px; }
+.evaluation-banner .tbody { display: grid; gap: 6px; margin-top: 8px; font-size: 14px; }
 .evaluation-banner .trow { align-items: center; }
 .evaluation-banner .cell.name { font-weight: 500; color: #e5e7eb; }
 .evaluation-banner .cell.num { font-variant-numeric: tabular-nums; color: #cbd5e1; }

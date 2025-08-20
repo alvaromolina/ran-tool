@@ -112,10 +112,6 @@ function App() {
   useEffect(() => { localStorage.setItem('eval.period', String(evalPeriod)) }, [evalPeriod])
   useEffect(() => { localStorage.setItem('eval.guard', String(evalGuard)) }, [evalGuard])
 
-  // When site changes, require user to choose a date explicitly
-  useEffect(() => {
-    setEvalDate('')
-  }, [site])
 
   // Trigger evaluation only when site and a valid date have been chosen
   useEffect(() => {
