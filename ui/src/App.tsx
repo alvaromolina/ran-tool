@@ -80,7 +80,36 @@ function App() {
     try {
       setDownloadingOutputsPdf(true)
       const element = outputsRef.current
-      const canvas = await html2canvas(element, { scale: 2, useCORS: true, allowTaint: true })
+      // Add class to tweak styles for export (hide map, force light banner styles)
+      element.classList.add('exporting-pdf')
+
+      // Try to align a page break so that Plot05 starts at a new PDF page.
+      // We approximate canvas dimensions based on html2canvas scale and element width
+      const scale = 2
+      const plot05El = element.querySelector('#plot05') as HTMLElement | null
+      let addedPaddingTopPxCss = 0
+      if (plot05El) {
+        const elRect = element.getBoundingClientRect()
+        const p5Rect = plot05El.getBoundingClientRect()
+        const yBreakCss = Math.max(0, p5Rect.top - elRect.top) // px within element
+        const canvasWidth = Math.round(element.clientWidth * scale)
+        const pdf = new jsPDF('p', 'pt', 'a4')
+        const pageWidthPt = pdf.internal.pageSize.getWidth()
+        const pageHeightPt = pdf.internal.pageSize.getHeight()
+        const imgWidthPt = pageWidthPt // we draw image to full width
+        const ratio = imgWidthPt / canvasWidth // pt per canvas px
+        const pageHeightCanvasPx = pageHeightPt / ratio
+        const yBreakCanvasPx = yBreakCss * scale
+        const remainder = yBreakCanvasPx % pageHeightCanvasPx
+        const padCanvasPx = remainder === 0 ? 0 : (pageHeightCanvasPx - remainder)
+        const padCssPx = padCanvasPx / scale
+        if (padCssPx > 0 && Number.isFinite(padCssPx)) {
+          element.style.paddingTop = `${padCssPx}px`
+          addedPaddingTopPxCss = padCssPx
+        }
+      }
+
+      const canvas = await html2canvas(element, { scale, useCORS: true, allowTaint: true })
       const imgData = canvas.toDataURL('image/png')
       const pdf = new jsPDF('p', 'pt', 'a4')
       const pageWidth = pdf.internal.pageSize.getWidth()
@@ -101,6 +130,10 @@ function App() {
     } catch (e) {
       alert(`Failed to generate outputs PDF: ${e}`)
     } finally {
+      // Remove export class to restore UI
+      outputsRef.current?.classList.remove('exporting-pdf')
+      // Remove temporary padding offset if applied
+      if (outputsRef.current) outputsRef.current.style.paddingTop = ''
       setDownloadingOutputsPdf(false)
     }
   }
@@ -553,7 +586,7 @@ function App() {
                     <div className="block-title">Plot03 – Site Voice Traffic</div>
                     <SimpleStackedBar data={siteVoice} title="Voice Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
                   </div>
-                  <div className="output-block">
+                  <div className="output-block block-map">
                     <div className="block-title">Plot04 – Map</div>
                     {loadingNb && fetchedNbOnce ? (
                       <div className="chart-loading" style={{ height: 360 }} />
@@ -586,7 +619,7 @@ function App() {
                       <button className="btn-grid button-show" onClick={() => setShowSitesModal(true)}>Show sites</button>
                     </div>
                   </div>
-                  <div className="output-block">
+                  <div className="output-block" id="plot05">
                     <div className="block-title">Plot05 – Neighbor CQIs</div>
                     <SimpleLineChart data={nbCqi} title="Neighbor CQIs" loading={loadingNb && fetchedNbOnce} {...common} />
                   </div>

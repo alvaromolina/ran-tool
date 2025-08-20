@@ -424,3 +424,31 @@ html, body, #root { width: 100%; min-height: 100%; }
 @media (max-width: 960px) {
   .eval-columns { grid-template-columns: 1fr; }
 }
+
+/* --- Export-only overrides (when outputs section has .exporting-pdf) --- */
+.panel.outputs.exporting-pdf .map-wrap {
+  display: none !important; /* hide the Leaflet map while exporting */
+}
+.panel.outputs.exporting-pdf .block-map .block-title { display: none !important; }
+.panel.outputs.exporting-pdf .evaluation-banner {
+  /* Force light-style banner regardless of current theme */
+  border-color: #e5e7eb !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+.panel.outputs.exporting-pdf .evaluation-banner .eval-title { color: #111827 !important; }
+.panel.outputs.exporting-pdf .evaluation-banner.is-pass .badge { background: #d1fae5 !important; color: #064e3b !important; border-color: #a7f3d0 !important; }
+.panel.outputs.exporting-pdf .evaluation-banner.is-fail .badge { background: #fee2e2 !important; color: #7f1d1d !important; border-color: #fecaca !important; }
+.panel.outputs.exporting-pdf .evaluation-banner.is-restored .badge { background: #dbeafe !important; color: #1e3a8a !important; border-color: #bfdbfe !important; }
+.panel.outputs.exporting-pdf .evaluation-banner .meta { color: #6b7280 !important; }
+.panel.outputs.exporting-pdf .evaluation-banner .thead { border-color: #e5e7eb !important; color: #6b7280 !important; }
+.panel.outputs.exporting-pdf .evaluation-banner .cell.name { color: #111827 !important; }
+.panel.outputs.exporting-pdf .evaluation-banner .cell.num { color: #374151 !important; }
+.panel.outputs.exporting-pdf .vbadge { background: #f3f4f6 !important; color: #111827 !important; border-color: #e5e7eb !important; }
+.panel.outputs.exporting-pdf .vbadge.vb-pass { background: #d1fae5 !important; color: #064e3b !important; border-color: #a7f3d0 !important; }
+.panel.outputs.exporting-pdf .vbadge.vb-fail { background: #fee2e2 !important; color: #7f1d1d !important; border-color: #fecaca !important; }
+.panel.outputs.exporting-pdf .vbadge.vb-restored { background: #dbeafe !important; color: #1e3a8a !important; border-color: #bfdbfe !important; }
+
+/* Hide action buttons during export */
+.panel.outputs.exporting-pdf .button-show { display: none !important; }
+.panel.outputs.exporting-pdf .btn-grid { display: none !important; }
