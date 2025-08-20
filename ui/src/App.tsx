@@ -87,7 +87,6 @@ function App() {
       // We approximate canvas dimensions based on html2canvas scale and element width
       const scale = 2
       const plot05El = element.querySelector('#plot05') as HTMLElement | null
-      let addedPaddingTopPxCss = 0
       if (plot05El) {
         const elRect = element.getBoundingClientRect()
         const p5Rect = plot05El.getBoundingClientRect()
@@ -105,7 +104,6 @@ function App() {
         const padCssPx = padCanvasPx / scale
         if (padCssPx > 0 && Number.isFinite(padCssPx)) {
           element.style.paddingTop = `${padCssPx}px`
-          addedPaddingTopPxCss = padCssPx
         }
       }
 
@@ -569,7 +567,7 @@ function App() {
               const regionStrokeWidth = theme === 'dark' ? 2 : 1
               const vLines = inputDate ? [{ x: inputDate, stroke: lineColor, strokeDasharray: '8 8', strokeWidth: 3 as const, label: '' }] : []
               const mkRegion = (r?: {from?: string; to?: string}) => (r?.from && r?.to ? { from: r.from, to: r.to, stroke: regionStroke, strokeDasharray: '6 6', strokeWidth: regionStrokeWidth, fill: regionFill, fillOpacity: regionFillOpacity } : null)
-              const mkLastRegion = (r?: {from?: string; to?: string}) => (r?.from && r?.to ? { from: r.from, to: r.to, stroke: regionStroke, strokeDasharray: '6 6', strokeWidth: 2, fill: regionFill, fillOpacity: 0 } : null)
+              const mkLastRegion = (r?: {from?: string; to?: string}) => (r?.from && r?.to ? { from: r.from, to: r.to, stroke: regionStroke, strokeDasharray: '6 6', strokeWidth: 2, fill: regionFill, fillOpacity: regionFillOpacity } : null)
               const regions = [mkRegion(ranges?.before), mkRegion(ranges?.after), mkLastRegion(ranges?.last)].filter(Boolean) as any[]
               const common = { xMin, xMax, vLines, regions }
               return (

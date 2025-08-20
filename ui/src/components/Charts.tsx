@@ -97,7 +97,18 @@ export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: nu
   }
   const snappedRegions = regions.map(r => {
     const { x1, x2 } = snapToRange(r.from, r.to);
-    return { ...r, from: x1 || r.from, to: x2 || r.to };
+    let from = x1 || r.from; let to = x2 || r.to;
+    // If region collapsed to a single tick, expand to adjacent tick so it's visible
+    if (from && to && from === to && uniqSorted.length > 1) {
+      const idx = Math.max(0, uniqSorted.indexOf(from));
+      if (idx < uniqSorted.length - 1) {
+        to = uniqSorted[idx + 1];
+      } else {
+        // last tick: expand backwards
+        if (idx > 0) from = uniqSorted[idx - 1];
+      }
+    }
+    return { ...r, from, to };
   });
   const snappedVLines = vLines.map(l => ({ ...l, x: snapX(l.x) || l.x }));
   if (loading) return (
@@ -188,7 +199,16 @@ export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: n
   }
   const snappedRegions = regions.map(r => {
     const { x1, x2 } = snapToRange(r.from, r.to);
-    return { ...r, from: x1 || r.from, to: x2 || r.to };
+    let from = x1 || r.from; let to = x2 || r.to;
+    if (from && to && from === to && uniqSorted.length > 1) {
+      const idx = Math.max(0, uniqSorted.indexOf(from));
+      if (idx < uniqSorted.length - 1) {
+        to = uniqSorted[idx + 1];
+      } else {
+        if (idx > 0) from = uniqSorted[idx - 1];
+      }
+    }
+    return { ...r, from, to };
   });
   const snappedVLines = vLines.map(l => ({ ...l, x: snapX(l.x) || l.x }));
   if (loading) return (
@@ -212,17 +232,33 @@ export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: n
           <YAxis />
           <Tooltip />
           <Legend />
+          {series.map((s, i) => (
+            <Bar key={s} dataKey={s} stackId="a" fill={["#0a84ff", "#ff375f", "#32d74b", "#ffd60a", "#5e5ce6"][i % 5]} stroke="none" />
+          ))}
           {snappedRegions.map((r, idx) => (
-            <ReferenceArea key={`reg-${idx}`} x1={r.from} x2={r.to} stroke={r.stroke || '#0a84ff'} strokeDasharray={r.strokeDasharray || '6 6'} strokeWidth={r.strokeWidth} fill={r.fill || '#0a84ff'} fillOpacity={r.fillOpacity ?? 0.06} />
+            <ReferenceArea
+              key={`reg-${idx}`}
+              x1={r.from}
+              x2={r.to}
+              stroke={r.stroke || '#0a84ff'}
+              strokeDasharray={r.strokeDasharray || '6 6'}
+              strokeWidth={r.strokeWidth || 2}
+              fill={r.fill || '#0a84ff'}
+              fillOpacity={Math.max(r.fillOpacity ?? 0.1, 0.18)}
+            />
+          ))}
+          {snappedRegions.map((r, idx) => (
+            <ReferenceLine key={`reg-start-${idx}`} x={r.from} stroke={(r.stroke || '#0a84ff')} strokeDasharray={r.strokeDasharray || '6 6'} strokeWidth={1} />
+          ))}
+          {snappedRegions.map((r, idx) => (
+            <ReferenceLine key={`reg-end-${idx}`} x={r.to} stroke={(r.stroke || '#0a84ff')} strokeDasharray={r.strokeDasharray || '6 6'} strokeWidth={1} />
           ))}
           {snappedVLines.map((l, idx) => (
             <ReferenceLine key={`vl-${idx}`} x={l.x} stroke={l.stroke || '#111'} strokeDasharray={l.strokeDasharray || '6 6'} strokeWidth={l.strokeWidth || 3} label={l.label} />
-          ))}
-          {series.map((s, i) => (
-            <Bar key={s} dataKey={s} stackId="a" fill={["#0a84ff", "#ff375f", "#32d74b", "#ffd60a", "#5e5ce6"][i % 5]} stroke="none" />
           ))}
         </BarChart>
       </ResponsiveContainer>
     </div>
   );
-};
+}
+;
