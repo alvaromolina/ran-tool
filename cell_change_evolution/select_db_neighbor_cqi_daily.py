@@ -92,84 +92,103 @@ def get_neighbor_cqi_daily(site_list, min_date=None, max_date=None, technology=N
     try:
         site_placeholders = ', '.join([f"'{site}'" for site in site_list])
         radius_meters = radius_km * 1000
-        
-        # Build technology conditions
-        tech_conditions = []
-        if technology == '3G':
-            tech_conditions.append("u.umts_composite_quality IS NOT NULL")
-        elif technology == '4G':
-            tech_conditions.append("l.f4g_composite_quality IS NOT NULL")
-        elif technology == '5G':
-            tech_conditions.append("n.nr_composite_quality IS NOT NULL")
-        
-        # Build date conditions
-        date_conditions = []
-        if min_date:
-            date_conditions.append(f"COALESCE(l.date, n.date, u.date) >= '{min_date}'")
-        if max_date:
-            date_conditions.append(f"COALESCE(l.date, n.date, u.date) <= '{max_date}'")
-        
-        # Combine all conditions
-        all_conditions = tech_conditions + date_conditions
-        where_clause = ""
-        if all_conditions:
-            where_clause = f"AND {' AND '.join(all_conditions)}"
-        
+
+        # Build per-technology SELECTs with date pushdown
+        selects = []
+
+        # 4G branch
+        if technology in (None, '4G'):
+            lte_where = [
+                "l.site_att IN (SELECT att_name FROM neighbor_sites)"
+            ]
+            if min_date:
+                lte_where.append(f"l.date >= '{min_date}'")
+            if max_date:
+                lte_where.append(f"l.date <= '{max_date}'")
+            selects.append(f"""
+                SELECT 
+                    l.date AS time,
+                    CAST(l.f4g_composite_quality AS DOUBLE PRECISION) AS lte_cqi,
+                    NULL::DOUBLE PRECISION AS nr_cqi,
+                    NULL::DOUBLE PRECISION AS umts_cqi
+                FROM lte_cqi_daily l
+                WHERE {' AND '.join(lte_where)}
+            """)
+
+        # 5G branch
+        if technology in (None, '5G'):
+            nr_where = [
+                "n.site_att IN (SELECT att_name FROM neighbor_sites)"
+            ]
+            if min_date:
+                nr_where.append(f"n.date >= '{min_date}'")
+            if max_date:
+                nr_where.append(f"n.date <= '{max_date}'")
+            selects.append(f"""
+                SELECT 
+                    n.date AS time,
+                    NULL::DOUBLE PRECISION AS lte_cqi,
+                    CAST(n.nr_composite_quality AS DOUBLE PRECISION) AS nr_cqi,
+                    NULL::DOUBLE PRECISION AS umts_cqi
+                FROM nr_cqi_daily n
+                WHERE {' AND '.join(nr_where)}
+            """)
+
+        # 3G branch
+        if technology in (None, '3G'):
+            umts_where = [
+                "u.site_att IN (SELECT att_name FROM neighbor_sites)"
+            ]
+            if min_date:
+                umts_where.append(f"u.date >= '{min_date}'")
+            if max_date:
+                umts_where.append(f"u.date <= '{max_date}'")
+            selects.append(f"""
+                SELECT 
+                    u.date AS time,
+                    NULL::DOUBLE PRECISION AS lte_cqi,
+                    NULL::DOUBLE PRECISION AS nr_cqi,
+                    CAST(u.umts_composite_quality AS DOUBLE PRECISION) AS umts_cqi
+                FROM umts_cqi_daily u
+                WHERE {' AND '.join(umts_where)}
+            """)
+
+        union_block = "\nUNION ALL\n".join(selects) if selects else "SELECT NULL::timestamp AS time, NULL::double precision AS lte_cqi, NULL::double precision AS nr_cqi, NULL::double precision AS umts_cqi LIMIT 0"
+
         neighbor_cqi_query = text(f"""
         WITH center_sites AS (
             SELECT latitude, longitude, att_name
             FROM public.master_node_total 
             WHERE att_name IN ({site_placeholders})
-            AND latitude IS NOT NULL 
-            AND longitude IS NOT NULL
+              AND latitude IS NOT NULL 
+              AND longitude IS NOT NULL
         ),
         neighbor_sites AS (
             SELECT DISTINCT m.att_name
             FROM public.master_node_total m
             CROSS JOIN center_sites c
             WHERE m.att_name IS NOT NULL
-            AND m.latitude IS NOT NULL 
-            AND m.longitude IS NOT NULL
-            AND m.att_name != c.att_name
-            AND m.att_name NOT IN ({site_placeholders})
-            AND ST_DWithin(
+              AND m.latitude IS NOT NULL 
+              AND m.longitude IS NOT NULL
+              AND m.att_name != c.att_name
+              AND m.att_name NOT IN ({site_placeholders})
+              AND ST_DWithin(
                 ST_GeogFromText('POINT(' || c.longitude || ' ' || c.latitude || ')'),
                 ST_GeogFromText('POINT(' || m.longitude || ' ' || m.latitude || ')'),
                 {radius_meters}
-            )
+              )
         )
-        SELECT 
-            time,
-            AVG(lte_cqi) AS lte_cqi,
-            AVG(nr_cqi) AS nr_cqi,
-            AVG(umts_cqi) AS umts_cqi
+        SELECT time,
+               AVG(lte_cqi)  AS lte_cqi,
+               AVG(nr_cqi)   AS nr_cqi,
+               AVG(umts_cqi) AS umts_cqi
         FROM (
-            SELECT 
-                COALESCE(l.date, n.date, u.date) AS time,
-                COALESCE(l.site_att, n.site_att, u.site_att) AS site_att,
-                CAST(l.f4g_composite_quality AS DOUBLE PRECISION) AS lte_cqi,
-                CAST(n.nr_composite_quality AS DOUBLE PRECISION) AS nr_cqi,
-                CAST(u.umts_composite_quality AS DOUBLE PRECISION) AS umts_cqi
-            FROM neighbor_sites ns
-            LEFT JOIN (
-                SELECT date, site_att, f4g_composite_quality 
-                FROM lte_cqi_daily
-            ) l ON ns.att_name = l.site_att
-            FULL OUTER JOIN (
-                SELECT date, site_att, nr_composite_quality 
-                FROM nr_cqi_daily
-            ) n ON l.date = n.date AND l.site_att = n.site_att
-            FULL OUTER JOIN (
-                SELECT date, site_att, umts_composite_quality 
-                FROM umts_cqi_daily
-            ) u ON COALESCE(l.date, n.date) = u.date AND COALESCE(l.site_att, n.site_att) = u.site_att
-            WHERE COALESCE(l.site_att, n.site_att, u.site_att) IS NOT NULL
-            {where_clause}
-        ) s
+            {union_block}
+        ) norm
         GROUP BY time
         ORDER BY time ASC
         """)
-        
+
         result_df = pd.read_sql_query(neighbor_cqi_query, engine)
         print(f"Retrieved neighbor CQI data for {len(site_list)} center sites: {result_df.shape[0]} records")
         return result_df
