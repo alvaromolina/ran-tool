@@ -9,6 +9,7 @@ function App() {
   const [health, setHealth] = useState<string>('checking...')
   const [theme, setTheme] = useState<'dark'|'light'>(() => (localStorage.getItem('theme') as 'dark'|'light') || 'dark')
   const [site, setSite] = useState<string>('')
+  const [isValidSite, setIsValidSite] = useState<boolean>(false)
   const [siteSuggestions, setSiteSuggestions] = useState<string[]>([])
   const [siteLoading, setSiteLoading] = useState(false)
   const [radiusKm, setRadiusKm] = useState<number>(5)
@@ -113,9 +114,9 @@ function App() {
   useEffect(() => { localStorage.setItem('eval.guard', String(evalGuard)) }, [evalGuard])
 
 
-  // Trigger evaluation only when site and a valid date have been chosen
+  // Trigger evaluation only when a valid site and a valid date have been chosen
   useEffect(() => {
-    if (!site || !isValidEvalDate) { setEvalResult(null); return }
+    if (!isValidSite || !isValidEvalDate) { setEvalResult(null); return }
     const input_date = evalDate
     let cancelled = false
     setEvalLoading(true)
@@ -125,10 +126,10 @@ function App() {
       .catch(err => { if (!cancelled) setEvalError(String(err)) })
       .finally(() => { if (!cancelled) setEvalLoading(false) })
     return () => { cancelled = true }
-  }, [site, evalThreshold, evalPeriod, evalGuard, evalDate, isValidEvalDate])
+  }, [site, evalThreshold, evalPeriod, evalGuard, evalDate, isValidEvalDate, isValidSite])
 
   async function handleDownloadReport() {
-    if (!site || !isValidEvalDate) return
+    if (!isValidSite || !isValidEvalDate) return
     try {
       setDownloadingPdf(true)
       const input_date = evalDate
@@ -178,14 +179,31 @@ function App() {
     return () => t && clearTimeout(t)
   }, [site])
 
+  // Validate the selected site against backend; only then allow API calls
+  useEffectReact(() => {
+    const s = site?.trim()
+    if (!s || s.length < 2) { setIsValidSite(false); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        // If ranges returns successfully, consider the site valid
+        await api.ranges(s)
+        if (!cancelled) setIsValidSite(true)
+      } catch {
+        if (!cancelled) setIsValidSite(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [site])
+
   // Track whether we've fetched at least once to decide loader vs empty-state
   const [fetchedSiteOnce, setFetchedSiteOnce] = useState(false)
   const [fetchedNbOnce, setFetchedNbOnce] = useState(false)
 
-  // Auto-fetch site datasets only when site and a valid date are set
+  // Auto-fetch site datasets only when a valid site and a valid date are set
   useEffectReact(() => {
     const s = site?.trim()
-    if (!s || s.length < 2 || !isValidEvalDate) return
+    if (!isValidSite || !isValidEvalDate) return
     let cancelled = false
     ;(async () => {
       try {
@@ -211,12 +229,12 @@ function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [site, isValidEvalDate])
+  }, [site, isValidEvalDate, isValidSite])
 
-  // Auto-fetch neighbor datasets (including geo) only when site and a valid date are set
+  // Auto-fetch neighbor datasets (including geo) only when a valid site and a valid date are set
   useEffectReact(() => {
     const s = site?.trim()
-    if (!s || s.length < 2 || !isValidEvalDate) return
+    if (!isValidSite || !isValidEvalDate) return
     let cancelled = false
     ;(async () => {
       try {
@@ -245,7 +263,7 @@ function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [site, radiusKm, isValidEvalDate])
+  }, [site, radiusKm, isValidEvalDate, isValidSite])
 
   return (
     <div className="app">
@@ -386,7 +404,7 @@ function App() {
                       <button
                         className="button-show"
                         onClick={handleDownloadReport}
-                        disabled={downloadingPdf || evalLoading || !isValidEvalDate}
+                        disabled={downloadingPdf || evalLoading || !isValidEvalDate || !isValidSite}
                         title="Download PDF report"
                       >
                         {downloadingPdf ? 'Downloading…' : 'Download PDF report'}

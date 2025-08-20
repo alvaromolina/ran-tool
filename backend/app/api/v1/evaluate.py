@@ -119,11 +119,17 @@ def _classify(delta_ab: Optional[float], delta_la: Optional[float], thr: float) 
     b = _bucket(delta_la, thr)
     klass: MetricClass = f"{a}{b}"  # type: ignore[assignment]
     # Verdict per §6
-    if a == "Down" and b == "Up":
+    if a == "Down" and b in ("Flat", "Up"):
         verdict = "Restored"
-    elif a == "Down" and b in ("Flat", "Down"):
+    elif a == "Down" and b == "Down":
         verdict = "Fail"
-    elif a in ("Up", "Flat") and b in ("Up", "Flat"):
+    elif a == "Flat" and b == "Down":
+        verdict = "Fail"
+    elif a == "Flat" and b in ("Flat", "Up"):
+        verdict = "Pass"
+    elif a in ("Up") and b == "Down":
+        verdict = "Fail"
+    elif a in ("Up") and b in ("Flat", "Up"):
         verdict = "Pass"
     else:
         verdict = "Inconclusive"
@@ -150,20 +156,21 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
     to = _date_str(end)
     t0 = time.perf_counter()
     if metric == 'site_cqi':
-        df = _call_with_timeout(get_cqi_daily, 6.5, att_name=site_att, min_date=frm, max_date=to, technology=tech)
+        print(f"[evaluate] Computing {metric} for {site_att} ({tech}) from {frm} to {to}")
+        df = _call_with_timeout(get_cqi_daily, 10.0, att_name=site_att, min_date=frm, max_date=to, technology=tech)
         # select_db_cqi_daily outputs: umts_cqi, lte_cqi, nr_cqi
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'site_data':
-        df = _call_with_timeout(get_traffic_data_daily, 6.5, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
+        df = _call_with_timeout(get_traffic_data_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
         val = _range_mean(df, preferred_cols=['ps_gb_uldl', 'traffic_dlul_tb'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'site_voice':
-        df = _call_with_timeout(get_traffic_voice_daily, 6.5, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
+        df = _call_with_timeout(get_traffic_voice_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
         val = _range_mean(df, preferred_cols=['traffic_voice'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
