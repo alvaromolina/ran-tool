@@ -32,6 +32,9 @@ from cell_change_evolution.select_db_neighbor_cqi_daily import (
     get_neighbor_traffic_voice,
     create_connection,
 )
+from cell_change_evolution.select_db_neighbor_cqi_daily import (
+    get_neighbor_cqi_daily_calculated,
+)
 
 router = APIRouter(prefix="/sites", tags=["sites"])
 
@@ -413,13 +416,24 @@ def get_neighbors_cqi(
     limit: Optional[int] = Query(5000, ge=1, le=100000),
     offset: int = Query(0, ge=0),
 ):
-    df = get_neighbor_cqi_daily(
-        site_list=site_att,
-        min_date=str(from_date) if from_date else None,
-        max_date=str(to_date) if to_date else None,
-        technology=technology,
-        radius_km=radius_km,
-    )
+    # Use calculated neighbor CQI dispatcher (consistent with site-level behavior)
+    if technology in ('3G', '4G', '5G'):
+        df = get_neighbor_cqi_daily_calculated(
+            site_list=site_att,
+            min_date=str(from_date) if from_date else None,
+            max_date=str(to_date) if to_date else None,
+            technology=technology,
+            radius_km=radius_km,
+        )
+    else:
+        # No technology specified: return merged calculated CQIs (3G+4G+5G)
+        df = get_neighbor_cqi_daily_calculated(
+            site_list=site_att,
+            min_date=str(from_date) if from_date else None,
+            max_date=str(to_date) if to_date else None,
+            technology=None,
+            radius_km=radius_km,
+        )
     if df is None:
         return []
     if limit is not None:
