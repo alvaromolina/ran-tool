@@ -216,10 +216,13 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
 
 
 @router.post("")
-def evaluate(req: EvaluateRequest) -> EvaluateResponse:
+def evaluate(req: EvaluateRequest) -> Any:
     # Define windows per §6
     max_d = _call_with_timeout(get_max_date, 8.0)
     max_date_source = "db"
+
+    return None
+
     # Fallback: if DB global max is unavailable, try deriving from this site's available data within a bounded window
     if not max_d:
         span = 120  # days around input date to probe

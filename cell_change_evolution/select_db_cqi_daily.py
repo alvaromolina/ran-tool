@@ -92,6 +92,491 @@ def get_cqi_daily(att_name, min_date=None, max_date=None, technology=None):
     finally:
         engine.dispose()
 
+def get_cqi_daily_calculated(att_name, min_date=None, max_date=None, technology=None):
+    """Return calculated CQI daily.
+
+    - If technology is '3G'|'4G'|'5G', delegate to the specific calculated function and return
+      columns [time, site_att, <tech>_cqi].
+    - If technology is None, outer-merge UMTS/LTE/NR calculated DataFrames on [time, site_att]
+      to match the shape of get_cqi_daily(): [time, site_att, lte_cqi, nr_cqi, umts_cqi].
+    """
+    # Delegate path
+    if technology == '3G':
+        return get_umts_cqi_daily_calculated(att_name, min_date=min_date, max_date=max_date)
+    if technology == '4G':
+        return get_lte_cqi_daily_calculated(att_name, min_date=min_date, max_date=max_date)
+    if technology == '5G':
+        return get_nr_cqi_daily_calculated(att_name, min_date=min_date, max_date=max_date)
+
+    # technology is None: merge three techs
+    df3 = get_umts_cqi_daily_calculated(att_name, min_date=min_date, max_date=max_date)
+    df4 = get_lte_cqi_daily_calculated(att_name, min_date=min_date, max_date=max_date)
+    df5 = get_nr_cqi_daily_calculated(att_name, min_date=min_date, max_date=max_date)
+
+    # Ensure DataFrames exist
+    if df3 is None and df4 is None and df5 is None:
+        return None
+    if df3 is None:
+        df3 = pd.DataFrame(columns=['time', 'site_att', 'umts_cqi'])
+    if df4 is None:
+        df4 = pd.DataFrame(columns=['time', 'site_att', 'lte_cqi'])
+    if df5 is None:
+        df5 = pd.DataFrame(columns=['time', 'site_att', 'nr_cqi'])
+
+    # Merge stepwise to preserve columns
+    out = pd.merge(df4, df5, on=['time', 'site_att'], how='outer')
+    out = pd.merge(out, df3, on=['time', 'site_att'], how='outer')
+
+    # Order and sanitize
+    out = out.sort_values(by=['site_att', 'time'])
+    out = out[['time', 'site_att', 'lte_cqi', 'nr_cqi', 'umts_cqi']]
+    return sanitize_df(out)
+
+def calculate_unified_cqi_nr_row(row):
+    """Calculate unified NR (5G) CQI using the specified formula:
+    0.17*EXP((1-Acc_MN)*C1) + 0.13*EXP((1-Acc_SN)*C2) + 0.17*EXP((1-Ret_MN)*C3)
+    + 0.13*EXP((1-Endc_Ret_Tot)*C4) + 0.20*(1-EXP(Thp_MN*1000*C5)) + 0.20*(1-EXP(Thp_SN*1000*C6))
+
+    Where Acc/Ret are percentages (0..100). Throughputs are in Mbps.
+    Falls back to vendor counters if combined fields are missing.
+    """
+    import math
+
+    # Weights (from attached image)
+    W1, W2, W3, W4, W5, W6 = 0.17, 0.13, 0.17, 0.13, 0.20, 0.20
+    # Constants (provided)
+    C1 = -14.9264816
+    C2 = -26.6809026
+    C3 = -14.9264816
+    C4 = -26.6809026
+    C5 = -0.0002006621  # per kbps; formula multiplies Mbps*1000
+    C6 = -0.0002006621
+
+    # Acc MN (%), prefer combined
+    acc_mn = row.get('acc_mn')
+    if acc_mn is None:
+        # Build from vendor counters: RRC * S1 * ERAB_SR_4GENDC
+        acc_rrc_num = _zn(row.get('e5g_acc_rrc_num_n')) + _zn(row.get('n5g_acc_rrc_num_n'))
+        acc_rrc_den = _zn(row.get('e5g_acc_rrc_den_n')) + _zn(row.get('n5g_acc_rrc_den_n'))
+        s1_num = _zn(row.get('e5g_s1_sr_num_n')) + _zn(row.get('n5g_s1_sr_num_n'))
+        s1_den = _zn(row.get('e5g_s1_sr_den_n')) + _zn(row.get('n5g_s1_sr_den_n'))
+        erab4g_num = _zn(row.get('e5g_nsa_acc_erab_sr_4gendc_num_n')) + _zn(row.get('n5g_nsa_acc_erab_sr_4gendc_num_n'))
+        erab4g_den = _zn(row.get('e5g_nsa_acc_erab_sr_4gendc_den_n')) + _zn(row.get('n5g_nsa_acc_erab_sr_4gendc_den_n'))
+        acc_mn = ((acc_rrc_num/acc_rrc_den if acc_rrc_den else 0)
+                  * (s1_num/s1_den if s1_den else 0)
+                  * (erab4g_num/erab4g_den if erab4g_den else 0)) * 100
+
+    # Acc SN (%), prefer combined
+    acc_sn = row.get('acc_sn')
+    if acc_sn is None:
+        # Use 5G leg ERAB success over attempts if available
+        succ_5g = _zn(row.get('e5g_nsa_acc_erab_succ_5gendc_5gleg_n')) + _zn(row.get('n5g_nsa_acc_erab_succ_5gendc_5gleg_n'))
+        att_5g  = _zn(row.get('e5g_nsa_acc_erab_att_5gendc_5gleg_n')) + _zn(row.get('n5g_nsa_acc_erab_att_5gendc_5gleg_n'))
+        acc_sn = (succ_5g/att_5g)*100 if att_5g else None
+
+    # Ret MN (%), prefer combined
+    ret_mn = row.get('ret_mn')
+    if ret_mn is None:
+        drop_4g = _zn(row.get('e5g_nsa_ret_erab_drop_4gendc_n')) + _zn(row.get('n5g_nsa_ret_erab_drop_4gendc_n'))
+        att_4g  = _zn(row.get('e5g_nsa_ret_erab_att_4gendc_n')) + _zn(row.get('n5g_nsa_ret_erab_att_4gendc_n'))
+        ret_mn = (1 - (drop_4g/att_4g)) * 100 if att_4g else None
+
+    # Endc Ret Tot (%), prefer combined
+    endc_ret_tot = row.get('endc_ret_tot')
+    if endc_ret_tot is None:
+        drop_54 = _zn(row.get('e5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n')) + _zn(row.get('n5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n'))
+        den_54  = _zn(row.get('e5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n')) + _zn(row.get('n5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n'))
+        endc_ret_tot = (1 - (drop_54/den_54)) * 100 if den_54 else None
+
+    # Throughputs (Mbps), prefer combined
+    thp_mn = row.get('thp_mn')
+    if thp_mn is None:
+        # Prefer MAC DL avg Mbps numer/denom if provided, else PDCP avg
+        mac_num = _zn(row.get('e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n')) + _zn(row.get('n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n'))
+        mac_den = _zn(row.get('e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n')) + _zn(row.get('n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n'))
+        mac_avg = (mac_num/mac_den) if mac_den else None
+        pdcp_num = _zn(row.get('e5g_nsa_thp_mn_num')) + _zn(row.get('n5g_nsa_thp_mn_num'))
+        pdcp_den = _zn(row.get('e5g_nsa_thp_mn_den')) + _zn(row.get('n5g_nsa_thp_mn_den'))
+        pdcp_avg = (pdcp_num/pdcp_den) if pdcp_den else None
+        thp_mn = mac_avg if mac_avg is not None else (pdcp_avg if pdcp_avg is not None else 0)
+
+    thp_sn = row.get('thp_sn')
+    if thp_sn is None:
+        # Use MAC DL avg Mbps from 5G leg if available
+        mac_num = _zn(row.get('e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n')) + _zn(row.get('n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n'))
+        mac_den = _zn(row.get('e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n')) + _zn(row.get('n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n'))
+        thp_sn = (mac_num/mac_den) if mac_den else 0
+
+    # Compose final CQI using provided formula
+    def _p(v):
+        return (v or 0) / 100.0
+
+    term1 = W1 * math.exp((1 - _p(acc_mn)) * C1)
+    term2 = W2 * math.exp((1 - _p(acc_sn)) * C2)
+    term3 = W3 * math.exp((1 - _p(ret_mn)) * C3)
+    term4 = W4 * math.exp((1 - _p(endc_ret_tot)) * C4)
+    term5 = W5 * (1 - math.exp((thp_mn or 0) * 1000.0 * C5))
+    term6 = W6 * (1 - math.exp((thp_sn or 0) * 1000.0 * C6))
+    nr_cqi = term1 + term2 + term3 + term4 + term5 + term6
+    try:
+        return round(float(nr_cqi), 8)
+    except Exception:
+        return float(nr_cqi)
+
+def get_nr_cqi_daily_calculated(att_name, min_date=None, max_date=None):
+    """Compute NR (5G) unified CQI per day/site from counters in nr_cqi_daily.
+
+    Returns: time, site_att, nr_cqi
+    """
+    engine = create_connection()
+    if engine is None:
+        return None
+    try:
+        where = ["n.site_att = :att_name"]
+        params = {"att_name": att_name}
+        if min_date:
+            where.append("n.date >= :min_date")
+            params["min_date"] = min_date
+        if max_date:
+            where.append("n.date <= :max_date")
+            params["max_date"] = max_date
+        where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+        sql = text(f"""
+            SELECT
+              n.date AS time,
+              n.site_att,
+              n.acc_mn, n.acc_sn, n.endc_ret_tot, n.ret_mn, n.thp_mn, n.thp_sn,
+              n.e5g_acc_rrc_num_n, n.e5g_s1_sr_num_n, n.e5g_nsa_acc_erab_sr_4gendc_num_n,
+              n.e5g_acc_rrc_den_n, n.e5g_s1_sr_den_n, n.e5g_nsa_acc_erab_sr_4gendc_den_n,
+              n.n5g_acc_rrc_num_n, n.n5g_s1_sr_num_n, n.n5g_nsa_acc_erab_sr_4gendc_num_n,
+              n.n5g_acc_rrc_den_n, n.n5g_s1_sr_den_n, n.n5g_nsa_acc_erab_sr_4gendc_den_n,
+              n.e5g_nsa_ret_erab_drop_4gendc_n, n.e5g_nsa_ret_erab_att_4gendc_n,
+              n.e5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n, n.e5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n,
+              n.n5g_nsa_ret_erab_drop_4gendc_n, n.n5g_nsa_ret_erab_att_4gendc_n,
+              n.n5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n, n.n5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n,
+              n.e5g_nsa_thp_mn_num, n.e5g_nsa_thp_mn_den,
+              n.n5g_nsa_thp_mn_num, n.n5g_nsa_thp_mn_den,
+              n.e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n, n.e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n,
+              n.n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n, n.n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n,
+              n.traffic_4gleg_gb, n.e5g_nsa_traffic_pdcp_gb_5gendc_4glegn, n.n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
+              n.traffic_5gleg_gb, n.e5g_nsa_traffic_pdcp_gb_5gendc_5gleg, n.n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
+            FROM nr_cqi_daily n
+            {where_clause}
+            ORDER BY n.site_att ASC, n.date ASC
+        """)
+
+        df = pd.read_sql(sql, engine, params=params)
+        if df is None or df.empty:
+            return df
+
+        df['nr_cqi'] = df.apply(calculate_unified_cqi_nr_row, axis=1)
+        out = df[['time', 'site_att', 'nr_cqi']].copy()
+        return sanitize_df(out)
+    except Exception as e:
+        print(f"Error computing NR unified CQI: {e}")
+        return None
+    finally:
+        engine.dispose()
+
+def _sum_fields(row, fields):
+    return sum(_zn(row.get(f)) for f in fields)
+
+def calculate_unified_cqi_lte_row(row):
+    """Calculate unified LTE (4G) CQI using combined fields when present; fallback to vendor aggregation.
+
+    Uses columns from lte_cqi_daily:
+      - Combined (preferred if present): accessibility_ps, retainability_ps, irat_ps,
+        thpt_dl_kbps_ran_drb, f4gon3g, ookla_latency, ookla_thp
+      - Vendor-prefixed fallbacks: <v>4g_rrc_success_all/attemps_all, <v>4g_s1_success/attemps,
+        <v>4g_erab_success/erabs_attemps, <v>4g_retainability_num/denom,
+        <v>4g_irat_4g_to_3g_events, <v>4g_erab_succ_established,
+        <v>4g_thpt_user_dl_kbps_num/denom, <v>4g_time3g/time4g,
+        <v>4g_sumavg_latency (ms), <v>4g_sumavg_dl_kbps, <v>4g_summuestras
+    """
+    import math
+
+    # Accessibility (percent 0..100)
+    acc = row.get('accessibility_ps')
+    if acc is None:
+        vendors = ['h4g', 's4g', 'e4g', 'n4g']
+        rrc_succ = _sum_fields(row, [f"{v}_rrc_success_all" for v in vendors])
+        rrc_att  = _sum_fields(row, [f"{v}_rrc_attemps_all" for v in vendors])
+        s1_succ  = _sum_fields(row, [f"{v}_s1_success" for v in vendors])
+        s1_att   = _sum_fields(row, [f"{v}_s1_attemps" for v in vendors])
+        erab_succ= _sum_fields(row, [f"{v}_erab_success" for v in vendors])
+        erab_att = _sum_fields(row, [f"{v}_erabs_attemps" for v in vendors])
+        acc = ( (rrc_succ/rrc_att if rrc_att else 0)
+                * (s1_succ/s1_att if s1_att else 0)
+                * (erab_succ/erab_att if erab_att else 0) ) * 100
+
+    # Retainability (percent 0..100)
+    ret = row.get('retainability_ps')
+    if ret is None:
+        vendors = ['h4g', 's4g', 'e4g', 'n4g']
+        ret_num   = _sum_fields(row, [f"{v}_retainability_num" for v in vendors])
+        ret_denom = _sum_fields(row, [f"{v}_retainability_denom" for v in vendors])
+        ret = (1 - (ret_num/ret_denom if ret_denom else 0)) * 100
+
+    # IRAT to 3G rate (fraction 0..1)
+    irat = row.get('irat_ps')
+    if irat is None:
+        vendors = ['h4g', 's4g', 'e4g', 'n4g']
+        irat_events = _sum_fields(row, [f"{v}_irat_4g_to_3g_events" for v in vendors])
+        erab_estab  = _sum_fields(row, [f"{v}_erab_succ_established" for v in vendors])
+        irat = (irat_events/erab_estab) if erab_estab else 0
+    # normalize if value looks like percent
+    if irat is not None and irat > 1:
+        irat = irat / 100.0
+
+    # Throughput DL (kbps)
+    thp_dl = row.get('thpt_dl_kbps_ran_drb')
+    if thp_dl is None:
+        vendors = ['h4g', 's4g', 'e4g', 'n4g']
+        thp_num = _sum_fields(row, [f"{v}_thpt_user_dl_kbps_num" for v in vendors])
+        thp_den = _sum_fields(row, [f"{v}_thpt_user_dl_kbps_denom" for v in vendors])
+        thp_dl = (thp_num/thp_den) if thp_den else 0
+
+    # 4G on 3G fraction (0..1)
+    fourgon3g = row.get('f4gon3g')
+    if fourgon3g is None:
+        vendors = ['h4g', 's4g', 'e4g', 'n4g']
+        t3g = _sum_fields(row, [f"{v}_time3g" for v in vendors])
+        t4g = _sum_fields(row, [f"{v}_time4g" for v in vendors])
+        denom = t3g + t4g
+        fourgon3g = (t4g/denom) if denom else 0
+    if fourgon3g is not None and fourgon3g > 1:
+        fourgon3g = fourgon3g / 100.0
+
+    # Ookla latency (ms) and throughput (kbps equivalent)
+    latency = row.get('ookla_latency')
+    if latency is None:
+        vendors = ['h4g', 's4g', 'e4g', 'n4g']
+        lat_sum = _sum_fields(row, [f"{v}_sumavg_latency" for v in vendors])
+        dl_sum  = _sum_fields(row, [f"{v}_sumavg_dl_kbps" for v in vendors])
+        m_count = _sum_fields(row, [f"{v}_summuestras" for v in vendors])
+        latency = (lat_sum/m_count) if m_count else None
+    ookla_thp = row.get('ookla_thp')
+    if ookla_thp is None:
+        vendors = ['h4g', 's4g', 'e4g', 'n4g']
+        dl_sum  = _sum_fields(row, [f"{v}_sumavg_dl_kbps" for v in vendors])
+        m_count = _sum_fields(row, [f"{v}_summuestras" for v in vendors])
+        ookla_thp = (dl_sum/m_count) if m_count else 0
+
+    # Apply LTE CQI formula
+    term_acc = 0.25 * math.exp((1 - (acc or 0)/100.0) * -63.91668575)
+    term_ret = 0.25 * math.exp((1 - (ret or 0)/100.0) * -63.91668575)
+    term_irat = 0.05 * math.exp((irat or 0) * -22.31435513)
+    term_thp_ran = 0.30 * (1 - math.exp((thp_dl or 0) * -0.000282742))
+    term_4g3g = 0.05 * min(1.0, math.exp(((fourgon3g or 0) - 0.10) * -1.15717757))
+    term_lat = 0.05 * math.exp(((latency or 0) - 20.0) * -0.00526802578289131)
+    term_ookla = 0.05 * (1 - math.exp((ookla_thp or 0) * -0.00005364793041447))
+
+    lte_cqi = term_acc + term_ret + term_irat + term_thp_ran + term_4g3g + term_lat + term_ookla
+    try:
+        return round(float(lte_cqi), 8)
+    except Exception:
+        return float(lte_cqi)
+
+def get_lte_cqi_daily_calculated(att_name, min_date=None, max_date=None):
+    """Compute LTE (4G) unified CQI per day/site from counters in lte_cqi_daily.
+
+    Returns columns: time (date), site_att, lte_cqi
+    """
+    engine = create_connection()
+    if engine is None:
+        return None
+    try:
+        where = ["l.site_att = :att_name"]
+        params = {"att_name": att_name}
+        if min_date:
+            where.append("l.date >= :min_date")
+            params["min_date"] = min_date
+        if max_date:
+            where.append("l.date <= :max_date")
+            params["max_date"] = max_date
+        where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+        sql = text(f"""
+            SELECT
+              l.date AS time,
+              l.site_att,
+              l.accessibility_ps, l.retainability_ps, l.irat_ps,
+              l.thpt_dl_kbps_ran_drb,
+              l.f4gon3g,
+              l.ookla_latency,
+              l.ookla_thp,
+              -- fallbacks if combined not available
+              l.h4g_rrc_success_all, l.h4g_rrc_attemps_all, l.h4g_s1_success, l.h4g_s1_attemps,
+              l.h4g_erab_success, l.h4g_erabs_attemps, l.h4g_retainability_num, l.h4g_retainability_denom,
+              l.h4g_irat_4g_to_3g_events, l.h4g_erab_succ_established, l.h4g_thpt_user_dl_kbps_num, l.h4g_thpt_user_dl_kbps_denom,
+              l.h4g_time3g, l.h4g_time4g, l.h4g_sumavg_latency, l.h4g_sumavg_dl_kbps, l.h4g_summuestras,
+              l.s4g_rrc_success_all, l.s4g_rrc_attemps_all, l.s4g_s1_success, l.s4g_s1_attemps,
+              l.s4g_erab_success, l.s4g_erabs_attemps, l.s4g_retainability_num, l.s4g_retainability_denom,
+              l.s4g_irat_4g_to_3g_events, l.s4g_erab_succ_established, l.s4g_thpt_user_dl_kbps_num, l.s4g_thpt_user_dl_kbps_denom,
+              l.s4g_time3g, l.s4g_time4g, l.s4g_sumavg_latency, l.s4g_sumavg_dl_kbps, l.s4g_summuestras,
+              l.e4g_rrc_success_all, l.e4g_rrc_attemps_all, l.e4g_s1_success, l.e4g_s1_attemps,
+              l.e4g_erab_success, l.e4g_erabs_attemps, l.e4g_retainability_num, l.e4g_retainability_denom,
+              l.e4g_irat_4g_to_3g_events, l.e4g_erab_succ_established, l.e4g_thpt_user_dl_kbps_num, l.e4g_thpt_user_dl_kbps_denom,
+              l.e4g_time3g, l.e4g_time4g, l.e4g_sumavg_latency, l.e4g_sumavg_dl_kbps, l.e4g_summuestras,
+              l.n4g_rrc_success_all, l.n4g_rrc_attemps_all, l.n4g_s1_success, l.n4g_s1_attemps,
+              l.n4g_erab_success, l.n4g_erabs_attemps, l.n4g_retainability_num, l.n4g_retainability_denom,
+              l.n4g_irat_4g_to_3g_events, l.n4g_erab_succ_established, l.n4g_thpt_user_dl_kbps_num, l.n4g_thpt_user_dl_kbps_denom,
+              l.n4g_time3g, l.n4g_time4g, l.n4g_sumavg_latency, l.n4g_sumavg_dl_kbps, l.n4g_summuestras
+            FROM lte_cqi_daily l
+            {where_clause}
+            ORDER BY l.site_att ASC, l.date ASC
+        """)
+
+        df = pd.read_sql(sql, engine, params=params)
+        if df is None or df.empty:
+            return df
+
+        df['lte_cqi'] = df.apply(calculate_unified_cqi_lte_row, axis=1)
+        out = df[['time', 'site_att', 'lte_cqi']].copy()
+        return sanitize_df(out)
+    except Exception as e:
+        print(f"Error computing LTE unified CQI: {e}")
+        return None
+    finally:
+        engine.dispose()
+
+def _zn(v):
+    """Zero-for-None helper (works with pandas row get)."""
+    try:
+        if v is None:
+            return 0
+        # if NaN
+        if isinstance(v, float) and (v != v):
+            return 0
+        return v
+    except Exception:
+        return 0
+
+def calculate_unified_cqi_umts_row(row):
+    """Calculate unified UMTS CQI from a DataFrame row using provided mappings and weights.
+
+    Expects the following fields on the row (aggregated by vendor prefix h/e/n):
+      - RRC/NAS/RAB successes & attempts for CS and PS
+      - CS drop num/denom
+      - PS retain num/denom
+      - Throughput DL numerator/denominator (kbps)
+    """
+    import math
+
+    total_cs_acc_success = (_zn(row.get('h3g_rrc_success_cs')) + _zn(row.get('e3g_rrc_success_cs')) + _zn(row.get('n3g_rrc_success_cs')))
+    total_cs_acc_attempts = (_zn(row.get('h3g_rrc_attempts_cs')) + _zn(row.get('e3g_rrc_attempts_cs')) + _zn(row.get('n3g_rrc_attempts_cs')))
+    total_cs_nas_success = (_zn(row.get('h3g_nas_success_cs')) + _zn(row.get('e3g_nas_success_cs')) + _zn(row.get('n3g_nas_success_cs')))
+    total_cs_nas_attempts = (_zn(row.get('h3g_nas_attempts_cs')) + _zn(row.get('e3g_nas_attempts_cs')) + _zn(row.get('n3g_nas_attempts_cs')))
+    total_cs_rab_success = (_zn(row.get('h3g_rab_success_cs')) + _zn(row.get('e3g_rab_success_cs')) + _zn(row.get('n3g_rab_success_cs')))
+    total_cs_rab_attempts = (_zn(row.get('h3g_rab_attempts_cs')) + _zn(row.get('e3g_rab_attempts_cs')) + _zn(row.get('n3g_rab_attempts_cs')))
+
+    total_cs_drop_num = (_zn(row.get('h3g_drop_num_cs')) + _zn(row.get('e3g_drop_num_cs')) + _zn(row.get('n3g_drop_num_cs')))
+    total_cs_drop_denom = (_zn(row.get('h3g_drop_denom_cs')) + _zn(row.get('e3g_drop_denom_cs')) + _zn(row.get('n3g_drop_denom_cs')))
+
+    total_ps_rrc_success = (_zn(row.get('h3g_rrc_success_ps')) + _zn(row.get('e3g_rrc_success_ps')) + _zn(row.get('n3g_rrc_success_ps')))
+    total_ps_rrc_attempts = (_zn(row.get('h3g_rrc_attempts_ps')) + _zn(row.get('e3g_rrc_attempts_ps')) + _zn(row.get('n3g_rrc_attempts_ps')))
+    total_ps_nas_success = (_zn(row.get('h3g_nas_success_ps')) + _zn(row.get('e3g_nas_success_ps')) + _zn(row.get('n3g_nas_success_ps')))
+    total_ps_nas_attempts = (_zn(row.get('h3g_nas_attempts_ps')) + _zn(row.get('e3g_nas_attempts_ps')) + _zn(row.get('n3g_nas_attempts_ps')))
+    total_ps_rab_success = (_zn(row.get('h3g_rab_success_ps')) + _zn(row.get('e3g_rab_success_ps')) + _zn(row.get('n3g_rab_success_ps')))
+    total_ps_rab_attempts = (_zn(row.get('h3g_rab_attempts_ps')) + _zn(row.get('e3g_rab_attempts_ps')) + _zn(row.get('n3g_rab_attempts_ps')))
+
+    total_ps_ret_num = (_zn(row.get('h3g_ps_retainability_num')) + _zn(row.get('e3g_ps_retainability_num')) + _zn(row.get('n3g_ps_retainability_num')))
+    total_ps_ret_denom = (_zn(row.get('h3g_ps_retainability_denom')) + _zn(row.get('e3g_ps_retainability_denom')) + _zn(row.get('n3g_ps_retainability_denom')))
+
+    total_thpt_num = (_zn(row.get('h3g_thpt_user_dl_kbps_num')) + _zn(row.get('e3g_thpt_user_dl_kbps_num')) + _zn(row.get('n3g_thpt_user_dl_kbps_num')))
+    total_thpt_denom = (_zn(row.get('h3g_thpt_user_dl_kbps_denom')) + _zn(row.get('e3g_thpt_user_dl_kbps_denom')) + _zn(row.get('n3g_thpt_user_dl_kbps_denom')))
+
+    unified_cs_acc = ((total_cs_acc_success / total_cs_acc_attempts if total_cs_acc_attempts else 0)
+                      * (total_cs_nas_success / total_cs_nas_attempts if total_cs_nas_attempts else 0)
+                      * (total_cs_rab_success / total_cs_rab_attempts if total_cs_rab_attempts else 0)) * 100
+
+    unified_cs_ret = (1 - total_cs_drop_num / total_cs_drop_denom) * 100 if total_cs_drop_denom else 0
+
+    unified_ps_acc = ((total_ps_rrc_success / total_ps_rrc_attempts if total_ps_rrc_attempts else 0)
+                      * (total_ps_nas_success / total_ps_nas_attempts if total_ps_nas_attempts else 0)
+                      * (total_ps_rab_success / total_ps_rab_attempts if total_ps_rab_attempts else 0)) * 100
+
+    unified_ps_ret = (1 - total_ps_ret_num / total_ps_ret_denom) * 100 if total_ps_ret_denom else 0
+
+    unified_thp = (total_thpt_num / total_thpt_denom) if total_thpt_denom else 0
+
+    unified_cqi = (
+        0.25 * math.exp((1 - unified_cs_acc / 100) * -58.11779571) +
+        0.25 * math.exp((1 - unified_cs_ret / 100) * -58.11779571) +
+        0.15 * math.exp((1 - unified_ps_acc / 100) * -28.62016873) +
+        0.15 * math.exp((1 - unified_ps_ret / 100) * -28.62016873) +
+        0.20 * (1 - math.exp(unified_thp * -0.00094856))
+    )
+
+    try:
+        return round(float(unified_cqi), 8)
+    except Exception:
+        return float(unified_cqi)
+
+def get_umts_cqi_daily_calculated(att_name, min_date=None, max_date=None):
+    """Compute UMTS (3G) unified CQI per day/site from raw counters in umts_cqi_daily.
+
+    Returns columns: time (date), site_att, umts_cqi
+    """
+    engine = create_connection()
+    if engine is None:
+        return None
+    try:
+        where = ["u.site_att = :att_name"]
+        params = {"att_name": att_name}
+        if min_date:
+            where.append("u.date >= :min_date")
+            params["min_date"] = min_date
+        if max_date:
+            where.append("u.date <= :max_date")
+            params["max_date"] = max_date
+        where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+        # Select the necessary columns only
+        sql = text(f"""
+            SELECT
+              u.date AS time,
+              u.site_att,
+              u.h3g_rrc_success_cs, u.e3g_rrc_success_cs, u.n3g_rrc_success_cs,
+              u.h3g_rrc_attempts_cs, u.e3g_rrc_attempts_cs, u.n3g_rrc_attempts_cs,
+              u.h3g_nas_success_cs, u.e3g_nas_success_cs, u.n3g_nas_success_cs,
+              u.h3g_nas_attempts_cs, u.e3g_nas_attempts_cs, u.n3g_nas_attempts_cs,
+              u.h3g_rab_success_cs, u.e3g_rab_success_cs, u.n3g_rab_success_cs,
+              u.h3g_rab_attempts_cs, u.e3g_rab_attempts_cs, u.n3g_rab_attempts_cs,
+              u.h3g_drop_num_cs, u.e3g_drop_num_cs, u.n3g_drop_num_cs,
+              u.h3g_drop_denom_cs, u.e3g_drop_denom_cs, u.n3g_drop_denom_cs,
+              u.h3g_rrc_success_ps, u.e3g_rrc_success_ps, u.n3g_rrc_success_ps,
+              u.h3g_rrc_attempts_ps, u.e3g_rrc_attempts_ps, u.n3g_rrc_attempts_ps,
+              u.h3g_nas_success_ps, u.e3g_nas_success_ps, u.n3g_nas_success_ps,
+              u.h3g_nas_attempts_ps, u.e3g_nas_attempts_ps, u.n3g_nas_attempts_ps,
+              u.h3g_rab_success_ps, u.e3g_rab_success_ps, u.n3g_rab_success_ps,
+              u.h3g_rab_attempts_ps, u.e3g_rab_attempts_ps, u.n3g_rab_attempts_ps,
+              u.h3g_ps_retainability_num, u.e3g_ps_retainability_num, u.n3g_ps_retainability_num,
+              u.h3g_ps_retainability_denom, u.e3g_ps_retainability_denom, u.n3g_ps_retainability_denom,
+              u.h3g_thpt_user_dl_kbps_num, u.e3g_thpt_user_dl_kbps_num, u.n3g_thpt_user_dl_kbps_num,
+              u.h3g_thpt_user_dl_kbps_denom, u.e3g_thpt_user_dl_kbps_denom, u.n3g_thpt_user_dl_kbps_denom
+            FROM umts_cqi_daily u
+            {where_clause}
+            ORDER BY u.site_att ASC, u.date ASC
+        """)
+
+        df = pd.read_sql(sql, engine, params=params)
+        if df is None or df.empty:
+            return df
+
+        # Calculate per-row unified CQI
+        df['umts_cqi'] = df.apply(calculate_unified_cqi_umts_row, axis=1)
+        # Keep only output columns
+        out = df[['time', 'site_att', 'umts_cqi']].copy()
+        return sanitize_df(out)
+
+    except Exception as e:
+        print(f"Error computing UMTS unified CQI: {e}")
+        return None
+    finally:
+        engine.dispose()
+
 def sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     """Replace +/-Inf with NaN, cast to object, then replace NaN/NA with None for JSON safety upstream."""
     if df is None:

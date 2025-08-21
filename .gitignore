@@ -44,3 +44,4 @@ quality_assurance_code/code/*
 nginx/certs/*
 lte_cell_change_event.csv
 umts_cell_change_event.csv
+mappings.csv

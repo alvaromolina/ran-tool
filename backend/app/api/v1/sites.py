@@ -19,6 +19,12 @@ from cell_change_evolution.select_db_cqi_daily import (
     get_traffic_data_daily,
     get_traffic_voice_daily,
 )
+from cell_change_evolution.select_db_cqi_daily import (
+    get_umts_cqi_daily_calculated,
+    get_lte_cqi_daily_calculated,
+    get_nr_cqi_daily_calculated,
+    get_cqi_daily_calculated,
+)
 from cell_change_evolution.select_db_neighbor_cqi_daily import (
     get_neighbor_sites,
     get_neighbor_cqi_daily,
@@ -251,12 +257,33 @@ def get_site_cqi(
     limit: Optional[int] = Query(5000, ge=1, le=100000),
     offset: int = Query(0, ge=0),
 ):
-    df = get_cqi_daily(
-        att_name=site_att,
-        min_date=str(from_date) if from_date else None,
-        max_date=str(to_date) if to_date else None,
-        technology=technology,
-    )
+    # Use calculated CQI for UMTS (3G), LTE (4G) and NR (5G)
+    if technology == '3G':
+        df = get_umts_cqi_daily_calculated(
+            att_name=site_att,
+            min_date=str(from_date) if from_date else None,
+            max_date=str(to_date) if to_date else None,
+        )
+    elif technology == '4G':
+        df = get_lte_cqi_daily_calculated(
+            att_name=site_att,
+            min_date=str(from_date) if from_date else None,
+            max_date=str(to_date) if to_date else None,
+        )
+    elif technology == '5G':
+        df = get_nr_cqi_daily_calculated(
+            att_name=site_att,
+            min_date=str(from_date) if from_date else None,
+            max_date=str(to_date) if to_date else None,
+        )
+    else:
+        # No technology specified: return merged calculated CQIs (3G+4G+5G)
+        df = get_cqi_daily_calculated(
+            att_name=site_att,
+            min_date=str(from_date) if from_date else None,
+            max_date=str(to_date) if to_date else None,
+            technology=None,
+        )
     if df is None:
         return []
     if limit is not None:
