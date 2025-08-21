@@ -15,8 +15,8 @@ def _split_csv(value: str | None) -> List[str]:
 class Settings:
     API_DEBUG: bool = os.getenv("API_DEBUG", "false").lower() == "true"
     API_PORT: int = int(os.getenv("API_PORT", "8000"))
+    print(os.getenv("CORS_ORIGINS", "http://localhost:5173"))
     CORS_ORIGINS: List[str] = _split_csv(os.getenv("CORS_ORIGINS", "http://localhost:5173"))
-
     POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
     POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5432"))
     POSTGRES_DB: str = os.getenv("POSTGRES_DB", "ran_quality")

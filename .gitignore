@@ -41,3 +41,6 @@ backend/app/api/v1/__pycache__
 ui/node_modules
 quality_assurance_code/input/*
 quality_assurance_code/code/*
+nginx/certs/*
+lte_cell_change_event.csv
+umts_cell_change_event.csv

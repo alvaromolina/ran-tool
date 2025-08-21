@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { api } from './api'
-import { MapContainer, TileLayer, CircleMarker, Popup, Circle } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Popup, Circle, Tooltip } from 'react-leaflet'
 import { useRef, useEffect as useEffectReact } from 'react'
 import { SimpleLineChart, SimpleStackedBar } from './components/Charts'
 import html2canvas from 'html2canvas'
@@ -28,8 +28,17 @@ function App() {
   const [nbCqi, setNbCqi] = useState<any[]>([])
   const [nbTraffic, setNbTraffic] = useState<any[]>([])
   const [nbVoice, setNbVoice] = useState<any[]>([])
+  // Event dates for selected site (LTE + UMTS)
+  const [eventDates, setEventDates] = useState<Array<{ tech: '3G'|'4G'; date: string; add_cell: number|null; delete_cell: number|null; total_cell: number|null; remark: string|null }>>([])
+  const [eventDatesLoading, setEventDatesLoading] = useState(false)
+  const [eventDatesError, setEventDatesError] = useState<string|null>(null)
   const [showSitesModal, setShowSitesModal] = useState(false)
+  const [showEventDatesModal, setShowEventDatesModal] = useState(false)
   const [downloadingOutputsPdf, setDownloadingOutputsPdf] = useState(false)
+  // Neighbor sites list for modal
+  const [nbSites, setNbSites] = useState<Array<{ site_name: string; region: string|null; province: string|null; municipality: string|null; vendor: string|null }>>([])
+  const [nbSitesLoading, setNbSitesLoading] = useState(false)
+  const [nbSitesError, setNbSitesError] = useState<string|null>(null)
   // Evaluation (M4)
   const [evalLoading, setEvalLoading] = useState(false)
   const [evalResult, setEvalResult] = useState<null | { site_att: string; input_date: string; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; options: any; metrics: any[] }>(null)
@@ -50,6 +59,8 @@ function App() {
 
   const mapRef = useRef<any>(null)
   const outputsRef = useRef<HTMLElement | null>(null)
+  const siteInputRef = useRef<HTMLInputElement | null>(null)
+  const evalDateInputRef = useRef<HTMLInputElement | null>(null)
 
   // A valid evaluation date must be explicitly chosen by the user
   const isValidEvalDate = useMemo(() => /^\d{4}-\d{2}-\d{2}$/.test(evalDate), [evalDate])
@@ -60,9 +71,6 @@ function App() {
     return [19.4326, -99.1332] as [number, number] // fallback (CDMX)
   }, [mapGeo])
 
-  const neighborNames = useMemo(() => (
-    (mapGeo || []).filter(g => g.role === 'neighbor').map(g => g.att_name)
-  ), [mapGeo])
 
   // Build per-technology totals for stacked traffic charts
   function asTrafficByTech(rows: any[]): any[] {
@@ -74,6 +82,20 @@ function App() {
       const g5 = (r?.e5g_nsa_traffic_pdcp_gb_5gendc_4glegn || 0) + (r?.n5g_nsa_traffic_pdcp_gb_5gendc_4glegn || 0) + (r?.e5g_nsa_traffic_pdcp_gb_5gendc_5gleg || 0) + (r?.n5g_nsa_traffic_pdcp_gb_5gendc_5gleg || 0)
       return { time: t, traffic_3g_gb: g3, traffic_4g_gb: g4, traffic_5g_gb: g5 }
     })
+  }
+
+  // Open the native date picker when clicking the icon/button
+  function openNativeDatePicker() {
+    const el = evalDateInputRef.current
+    if (!el) return
+    try {
+      // @ts-ignore: showPicker is supported in modern browsers
+      if (typeof el.showPicker === 'function') { el.showPicker(); return }
+    } catch {}
+    el.focus()
+    // Fallback clicks (Safari/WebKit)
+    try { el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); } catch {}
+    try { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); } catch {}
   }
 
   async function handleDownloadOutputsPdf() {
@@ -235,9 +257,74 @@ function App() {
     return () => { cancelled = true }
   }, [selectedSite])
 
+  // Fetch event dates when a valid site is selected
+  useEffectReact(() => {
+    const s = selectedSite?.trim()
+    if (!s || !isValidSite) { setEventDates([]); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        setEventDatesLoading(true)
+        setEventDatesError(null)
+        const rows = await api.eventDates(s, { limit: 200 })
+        if (cancelled) return
+        setEventDates(Array.isArray(rows) ? rows : [])
+      } catch (e: any) {
+        if (!cancelled) setEventDatesError(String(e))
+      } finally {
+        if (!cancelled) setEventDatesLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [selectedSite, isValidSite])
+
   // Track whether we've fetched at least once to decide loader vs empty-state
   const [fetchedSiteOnce, setFetchedSiteOnce] = useState(false)
   const [fetchedNbOnce, setFetchedNbOnce] = useState(false)
+
+  // Fetch neighbor site details when opening modal
+  useEffectReact(() => {
+    const s = selectedSite?.trim()
+    if (!showSitesModal || !s || !isValidSite) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        setNbSitesLoading(true)
+        setNbSitesError(null)
+        const rows = await api.neighborsList(s, { radius_km: radiusKm })
+        if (cancelled) return
+        setNbSites(Array.isArray(rows) ? rows : [])
+      } catch (e: any) {
+        if (!cancelled) setNbSitesError(String(e))
+      } finally {
+        if (!cancelled) setNbSitesLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [showSitesModal, selectedSite, radiusKm, isValidSite])
+
+  function exportNeighborsCsv() {
+    if (!nbSites || nbSites.length === 0) return
+    const headers = ['site_name','region','province','municipality','vendor']
+    const esc = (v: any) => {
+      if (v == null) return ''
+      const s = String(v)
+      if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+      return s
+    }
+    const rows = nbSites.map(r => [r.site_name, r.region ?? '', r.province ?? '', r.municipality ?? '', r.vendor ?? ''])
+    const csv = [headers.join(','), ...rows.map(r => r.map(esc).join(','))].join('\n')
+    const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const fname = `neighbors_${(selectedSite||'site').replace(/[^A-Za-z0-9_\-]+/g,'_')}_r${radiusKm}km.csv`
+    a.href = url
+    a.download = fname
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
 
   // Auto-fetch site datasets only when a selected site and a valid date are set
   useEffectReact(() => {
@@ -334,12 +421,27 @@ function App() {
       </header>
 
       <main className="layout">
+        {!selectedSite && (
+          <div className="callout start-callout" role="status" aria-live="polite">
+            <div className="callout-title">Start by choosing a site</div>
+            <div className="callout-body">
+              Enter a Site ATT code in the box below and pick one of the suggestions to load data.
+            </div>
+            <div className="callout-actions">
+              <button className="button-show" type="button" onClick={() => siteInputRef.current?.focus()}>
+                Search site
+              </button>
+            </div>
+          </div>
+        )}
+
         <section className="panel controls">
           <h2>Controls</h2>
           <div className="form-row">
             <label className="field">
               <span>Site ATT</span>
               <input
+                ref={siteInputRef}
                 value={site}
                 onChange={(e) => { setSite(e.target.value); setSelectedSite(''); setIsValidSite(false); }}
                 placeholder="SITE_ID"
@@ -364,13 +466,34 @@ function App() {
               )}
             </label>
 
-            <label className="field">
+            <label className="field date-field">
               <span>Input date</span>
-              <input
-                type="date"
-                value={evalDate}
-                onChange={(e) => { setEvalDate(e.target.value) }}
-              />
+              <div className="date-input-wrap">
+                <input
+                  ref={evalDateInputRef}
+                  type="date"
+                  value={evalDate}
+                  onChange={(e) => { setEvalDate(e.target.value) }}
+                />
+                <button
+                  type="button"
+                  className="date-picker-button"
+                  aria-label="Open calendar"
+                  title="Open calendar"
+                  onClick={openNativeDatePicker}
+                />
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <button
+                  className="btn-grid button-show"
+                  type="button"
+                  onClick={() => setShowEventDatesModal(true)}
+                  disabled={!isValidSite}
+                  title={isValidSite ? 'Open event dates' : 'Select a valid site first'}
+                >
+                  Event dates…
+                </button>
+              </div>
             </label>
             <label className="field">
               <span>Radius (km)</span>
@@ -424,6 +547,7 @@ function App() {
 
           {/* per-chart loading placeholders show in each chart. We only show loaders after first fetch starts */}
           {error && <div className="note error">{error}</div>}
+
         </section>
 
         <section className="panel outputs" ref={outputsRef}>
@@ -456,31 +580,41 @@ function App() {
                       {(() => {
                         const siteMetrics = (evalResult.metrics || []).filter((m: any) => typeof m?.name === 'string' && m.name.startsWith('Site '))
                         const nbMetrics = (evalResult.metrics || []).filter((m: any) => typeof m?.name === 'string' && m.name.startsWith('Neighbors '))
-                        const Table = ({ title, rows }: { title: string; rows: any[] }) => (
-                          <div className="eval-col">
-                            <div className="col-title">{title}</div>
-                            <div className="mtable">
-                              <div className="thead">
-                                <div>Name</div>
-                                <div>Δ After/Before</div>
-                                <div>Δ Last/Before</div>
-                                <div>Class</div>
-                                <div>Verdict</div>
-                              </div>
-                              <div className="tbody">
-                                {rows.map((m: any, i: number) => (
-                                  <div className="trow" key={i}>
-                                    <div className="cell name">{m.name}</div>
-                                    <div className="cell num">{m.delta_after_before != null ? `${(m.delta_after_before*100).toFixed(1)}%` : '—'}</div>
-                                    <div className="cell num">{m.delta_last_before   != null ? `${(m.delta_last_before*100).toFixed(1)}%` : '—'}</div>
-                                    <div className="cell">{m.klass || '—'}</div>
-                                    <div className="cell"><span className={`vbadge vb-${(m.verdict||'inconclusive').toLowerCase()}`}>{m.verdict || 'Inconclusive'}</span></div>
-                                  </div>
-                                ))}
+                        const Table = ({ title, rows }: { title: string; rows: any[] }) => {
+                          const fmtVal = (v: any) => (v != null && Number.isFinite(v)) ? (Number(v).toFixed(1)) : '—'
+                          const fmtPct = (v: any) => (v != null && Number.isFinite(v)) ? `${(Number(v)*100).toFixed(1)}%` : '—'
+                          return (
+                            <div className="eval-col">
+                              <div className="col-title">{title}</div>
+                              <div className="mtable">
+                                <div className="thead">
+                                  <div>Name</div>
+                                  <div>Before</div>
+                                  <div>After</div>
+                                  <div>Last</div>
+                                  <div>ΔAfter/Before</div>
+                                  <div>ΔLast/Before</div>
+                                  <div>Class</div>
+                                  <div>Verdict</div>
+                                </div>
+                                <div className="tbody">
+                                  {rows.map((m: any, i: number) => (
+                                    <div className="trow" key={i}>
+                                      <div className="cell name">{(m.name || '').replace(/^(Site|Neighbors)\s+/, '')}</div>
+                                      <div className="cell num">{fmtVal(m.before_mean)}</div>
+                                      <div className="cell num">{fmtVal(m.after_mean)}</div>
+                                      <div className="cell num">{fmtVal(m.last_mean)}</div>
+                                      <div className="cell num">{fmtPct(m.delta_after_before)}</div>
+                                      <div className="cell num">{fmtPct(m.delta_last_before)}</div>
+                                      <div className="cell">{m.klass || '—'}</div>
+                                      <div className="cell"><span className={`vbadge vb-${(m.verdict||'inconclusive').toLowerCase()}`}>{m.verdict || 'Inconclusive'}</span></div>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )
+                          )
+                        }
                         return (
                           <div className="eval-columns">
                             <Table title="Site" rows={siteMetrics} />
@@ -569,19 +703,21 @@ function App() {
                             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                           />
+                          {/* radius circle for context (render first so it's beneath markers) */}
+                          <Circle center={mapCenter} radius={radiusKm * 1000} pathOptions={{ color: '#9aa0a6' }} interactive={false} />
                           {mapGeo.map((g, idx) => (
                             g.role === 'center' ? (
                               <CircleMarker key={`c-${idx}`} center={[g.latitude, g.longitude]} radius={8} pathOptions={{ color: '#34c759' }}>
+                                <Tooltip permanent direction="bottom" offset={[0, 10]} opacity={0.85} className="map-label">{g.att_name}</Tooltip>
                                 <Popup>Center: {g.att_name}</Popup>
                               </CircleMarker>
                             ) : (
                               <CircleMarker key={`n-${idx}`} center={[g.latitude, g.longitude]} radius={6} pathOptions={{ color: '#f4c20d' }}>
+                                <Tooltip permanent direction="bottom" offset={[0, 10]} opacity={0.85} className="map-label">{g.att_name}</Tooltip>
                                 <Popup>Neighbor: {g.att_name}</Popup>
                               </CircleMarker>
                             )
                           ))}
-                          {/* radius circle for context */}
-                          <Circle center={mapCenter} radius={radiusKm * 1000} pathOptions={{ color: '#9aa0a6' }} />
                         </MapContainer>
                       </div>
                     ) : (
@@ -610,13 +746,91 @@ function App() {
         </section>
         {showSitesModal && (
           <div className="modal-backdrop" onClick={() => setShowSitesModal(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
               <div className="modal-title">Neighbor Sites</div>
               <div className="modal-body">
-                <textarea readOnly value={neighborNames.join('\n')} onFocus={(e) => e.currentTarget.select()} />
+                {nbSitesLoading ? (
+                  <div className="note">Loading…</div>
+                ) : nbSitesError ? (
+                  <div className="note error">{nbSitesError}</div>
+                ) : nbSites.length === 0 ? (
+                  <div className="note muted">No neighbor sites found.</div>
+                ) : (
+                  <div className="event-table neighbors">
+                    <div className="thead">
+                      <div>Site name</div>
+                      <div>Region</div>
+                      <div>Province</div>
+                      <div>Municipality</div>
+                      <div>Vendor</div>
+                    </div>
+                    <div className="tbody">
+                      {nbSites.map((r, i) => (
+                        <div className="trow" key={i}>
+                          <div className="cell">{r.site_name}</div>
+                          <div className="cell">{r.region || '—'}</div>
+                          <div className="cell">{r.province || '—'}</div>
+                          <div className="cell">{r.municipality || '—'}</div>
+                          <div className="cell">{r.vendor || '—'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="modal-actions">
+                <button className="theme-toggle" onClick={exportNeighborsCsv} disabled={nbSitesLoading || nbSites.length===0}>Export CSV</button>
                 <button className="theme-toggle" onClick={() => setShowSitesModal(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showEventDatesModal && (
+          <div className="modal-backdrop" onClick={() => setShowEventDatesModal(false)}>
+            <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-title">Event Dates</div>
+              <div className="modal-body">
+                {eventDatesLoading ? (
+                  <div className="note">Loading…</div>
+                ) : eventDatesError ? (
+                  <div className="note error">{eventDatesError}</div>
+                ) : eventDates.length === 0 ? (
+                  <div className="note muted">No events found.</div>
+                ) : (
+                  <div className="event-table">
+                    <div className="thead">
+                      <div>Tech</div>
+                      <div>Date</div>
+                      <div>+Cells</div>
+                      <div>-Cells</div>
+                      <div>Total</div>
+                      <div>Remark</div>
+                    </div>
+                    <div className="tbody">
+                      {eventDates.slice(0, 500).map((r, i) => {
+                        const tClass = r.tech === '4G' ? 't4' : 't3'
+                        return (
+                          <div
+                            key={`${r.tech}-${r.date}-${i}`}
+                            className="trow clickable"
+                            onClick={() => { setEvalDate(r.date); setShowEventDatesModal(false) }}
+                            title="Use this date for evaluation"
+                          >
+                            <div className="cell badge"><span className={`badge-tech ${tClass}`}>{r.tech}</span></div>
+                            <div className="cell">{r.date}</div>
+                            <div className="cell num">{r.add_cell ?? '—'}</div>
+                            <div className="cell num">{r.delete_cell ?? '—'}</div>
+                            <div className="cell num">{r.total_cell ?? '—'}</div>
+                            <div className="cell remark" title={r.remark ?? ''}>{r.remark ?? '—'}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="modal-actions">
+                <button className="theme-toggle" onClick={() => setShowEventDatesModal(false)}>Close</button>
               </div>
             </div>
           </div>

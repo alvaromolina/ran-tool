@@ -71,8 +71,8 @@ html, body, #root { width: 100%; min-height: 100%; }
 
 .layout {
   display: grid;
-  /* fixed left column width (240px), right column fills remaining space */
-  grid-template-columns: 200px 1fr;
+  /* left: controls (fixed), right: outputs (flexible) */
+  grid-template-columns: 220px 1fr;
   gap: 16px;
   width: 100%;
 }
@@ -86,9 +86,7 @@ html, body, #root { width: 100%; min-height: 100%; }
   width: 100%;
 }
 
-.panel.controls {
-  width: 85%;
-}
+.panel.controls { width: 85%; grid-column: 1; }
 
 .controls h2 {
   margin: 0 0 8px 0;
@@ -119,18 +117,68 @@ html, body, #root { width: 100%; min-height: 100%; }
   color: #e5e5e5;
 }
 
-/* Ensure the native calendar icon is visible in both themes */
-.field input[type="date"]::-webkit-calendar-picker-indicator {
-  opacity: 1;
+/* Cross-browser calendar icon: custom SVG background; keep native picker clickable */
+.field input[type="date"] { padding-right: 40px; position: relative; z-index: 0; }
+
+/* Wrapper provides a reliable anchor for a custom icon */
+.date-input-wrap { position: relative; width: 100%; display: inline-block; }
+.date-input-wrap::after {
+  content: '';
+  display: block;
+  position: absolute;
+  top: 50%;
+  right: 22px; /* nudged further left */
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 18px 18px;
+  pointer-events: none; /* do not block native picker */
+  z-index: 1; /* render above input background */
+}
+
+/* Clickable transparent button over the icon area */
+.date-input-wrap .date-picker-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px; /* match padding-right area */
+  height: 100%;
+  border: 0;
+  background: transparent;
   cursor: pointer;
+  z-index: 3; /* above pseudo-element and indicator */
 }
-[data-theme='dark'] .field input[type="date"]::-webkit-calendar-picker-indicator {
-  /* lighten icon for dark background */
-  filter: invert(1) brightness(1.2);
+/* Remove default focus outline from the invisible button but keep accessibility */
+.date-input-wrap .date-picker-button:focus { outline: none; }
+
+/* Default icon as a fallback (dark-ish) */
+.date-field .date-input-wrap::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23111827' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2' ry='2'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E");
 }
-[data-theme='light'] .field input[type="date"]::-webkit-calendar-picker-indicator {
-  /* darken icon for light background */
-  filter: invert(0) brightness(0.3) contrast(1.2);
+
+/* Dark theme icon */
+[data-theme='dark'] .field input[type="date"] { color-scheme: dark; }
+[data-theme='dark'] .date-field .date-input-wrap::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23e5e5e5' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2' ry='2'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E") !important;
+}
+
+/* Light theme icon */
+[data-theme='light'] .field input[type="date"] { color-scheme: light; }
+[data-theme='light'] .date-field .date-input-wrap::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23111827' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2' ry='2'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E") !important;
+}
+
+/* Keep native WebKit indicator clickable but invisible (so our SVG shows) */
+[data-theme] .field input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0; /* hide icon */
+  background: transparent;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  position: relative;
+  z-index: 2; /* keep clickable area above pseudo-element */
 }
 
 /* Autocomplete */
@@ -187,8 +235,32 @@ html, body, #root { width: 100%; min-height: 100%; }
 .note { font-size: 13px; color: #9aa0a6; margin-top: 8px; }
 .note.error { color: #ff6b6b; }
 
+/* Start callout prompting site selection */
+.callout {
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #0f0f0f;
+  margin-bottom: 8px;
+  width: 95%;
+}
+.start-callout {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  /* span full width on its own row */
+  grid-column: 1 / -1;
+}
+.callout-title { font-weight: 600; color: #cbd5e1; }
+.callout-body { color: #9aa0a6; font-size: 13px; }
+.callout-actions { display: flex; gap: 8px; }
+[data-theme='light'] .callout { background: #ffffff; border-color: #e5e7eb; }
+[data-theme='light'] .callout-title { color: #111827; }
+[data-theme='light'] .callout-body { color: #6b7280; }
+
 .outputs { overflow: hidden; }
-.panel.outputs { width: 93%; justify-self: stretch; align-self: stretch; min-width: 0; }
+.panel.outputs { width: 94%; justify-self: stretch; align-self: stretch; min-width: 0; grid-column: 2; }
 .output-grid {
   display: grid;
   grid-template-columns: 1fr; /* one plot per row */
@@ -250,6 +322,18 @@ html, body, #root { width: 100%; min-height: 100%; }
   overflow: hidden;
 }
 
+/* Subtle static labels for map points */
+.leaflet-tooltip.map-label {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: #444; /* dark gray letters */
+  font-size: 10px; /* smaller */
+  font-weight: 500;
+  padding: 0 2px;
+  pointer-events: none; /* do not block clicks on markers */
+}
+
 .map-empty {
   display: flex;
   align-items: center;
@@ -305,6 +389,9 @@ html, body, #root { width: 100%; min-height: 100%; }
   padding: 12px;
 }
 [data-theme='light'] .modal { background: #ffffff; border-color: #e5e7eb; }
+
+/* Wider modal variant for dense tables */
+.modal-wide { width: min(1080px, 96vw); }
 .modal-title { font-weight: 600; margin-bottom: 8px; }
 .modal-body { margin: 8px 0; }
 .modal-body textarea {
@@ -389,17 +476,18 @@ html, body, #root { width: 100%; min-height: 100%; }
 .evaluation-banner .mtable { width: 100%; }
 .evaluation-banner .thead, .evaluation-banner .trow {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr;
+  /* Name | Before | After | Last | Δ A/B | Δ L/B | Class | Verdict */
+  grid-template-columns: 1.6fr 0.8fr 0.8fr 0.8fr 0.9fr 0.9fr 0.9fr 0.9fr;
   gap: 8px;
 }
 .evaluation-banner .thead {
-  font-size: 12px;
+  font-size: 11px;
   color: #9aa0a6;
   border-bottom: 1px solid #222;
   padding-bottom: 6px;
   margin-top: 4px;
 }
-.evaluation-banner .tbody { display: grid; gap: 6px; margin-top: 8px; font-size: 14px; }
+.evaluation-banner .tbody { display: grid; gap: 6px; margin-top: 8px; font-size: 12px; }
 .evaluation-banner .trow { align-items: center; }
 .evaluation-banner .cell.name { font-weight: 500; color: #e5e7eb; }
 .evaluation-banner .cell.num { font-variant-numeric: tabular-nums; color: #cbd5e1; }
@@ -466,3 +554,68 @@ html, body, #root { width: 100%; min-height: 100%; }
 /* Hide action buttons during export */
 .panel.outputs.exporting-pdf .button-show { display: none !important; }
 .panel.outputs.exporting-pdf .btn-grid { display: none !important; }
+
+/* --- Event dates stylish table --- */
+.event-table {
+  width: 100%;
+  border: 1px solid #222;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.event-table .thead,
+.event-table .trow {
+  display: grid;
+  grid-template-columns: 0.7fr 1.1fr 0.7fr 0.7fr 0.8fr 2fr;
+  gap: 10px;
+  align-items: center;
+}
+.event-table.neighbors .thead,
+.event-table.neighbors .trow {
+  /* Site | Region | Province | Municipality | Vendor */
+  grid-template-columns: 1.3fr 1fr 1fr 1.2fr 0.8fr;
+}
+.event-table .thead {
+  position: sticky;
+  top: 0;
+  background: #0f0f0f;
+  color: #9aa0a6;
+  padding: 10px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid #222;
+  z-index: 1;
+}
+.event-table .tbody {
+  max-height: 60vh;
+  overflow: auto;
+  display: grid;
+}
+.event-table .trow {
+  padding: 10px 12px;
+  border-bottom: 1px solid #161616;
+}
+.event-table .trow:hover { background: #131313; }
+.event-table .trow.clickable { cursor: pointer; }
+.event-table .cell.num { font-variant-numeric: tabular-nums; text-align: right; color: #cbd5e1; }
+.event-table .cell.remark { font-size: 13px; color: #b6b6b6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.event-table .cell.badge {
+  justify-self: start;
+}
+.event-table .badge-tech {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid #2a2a2a;
+  background: #151515;
+  color: #e5e5e5;
+}
+.event-table .badge-tech.t3 { background: #1e3a8a; color: #dbeafe; border-color: #1d4ed8; }
+.event-table .badge-tech.t4 { background: #064e3b; color: #d1fae5; border-color: #065f46; }
+
+[data-theme='light'] .event-table { border-color: #e5e7eb; }
+[data-theme='light'] .event-table .thead { background: #ffffff; border-color: #e5e7eb; color: #6b7280; }
+[data-theme='light'] .event-table .trow { border-color: #f0f1f3; }
+[data-theme='light'] .event-table .trow:hover { background: #f9fafb; }
+[data-theme='light'] .event-table .cell.num { color: #374151; }
+[data-theme='light'] .event-table .cell.remark { color: #4b5563; }
+[data-theme='light'] .event-table .badge-tech { background: #f3f4f6; color: #111827; border-color: #e5e7eb; }

@@ -36,8 +36,11 @@ services:
       - ui
     volumes:
       - ./nginx/proxy.conf:/etc/nginx/nginx.conf:ro
+      # Mount TLS certs for SSL (place fullchain.pem and privkey.pem here)
+      - ./nginx/certs:/etc/nginx/certs:ro
     ports:
-      - "80:80"  # single entrypoint
+      - "80:80"
+      - "443:443"
     networks:
       - ran_net
 

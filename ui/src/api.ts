@@ -26,6 +26,14 @@ export const api = {
     params.set('limit', String(limit));
     return http<string[]>(`/api/sites/search?${params.toString()}`);
   },
+  neighborsList: (site: string, params?: { radius_km?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.radius_km != null) q.set('radius_km', String(params.radius_km));
+    const qs = q.toString();
+    return http<Array<{ site_name: string; region: string | null; province: string | null; municipality: string | null; vendor: string | null }>>(
+      `/api/sites/${encodeURIComponent(site)}/neighbors/list${qs ? `?${qs}` : ''}`
+    );
+  },
   ranges: (site: string) => http<{ site_att: string; input_date: string | null; max_date: string | null }>(`/api/sites/${encodeURIComponent(site)}/ranges`),
   cellChanges: (site: string, params?: { group_by?: 'network' | 'region' | 'province' | 'municipality'; technologies?: string[]; vendors?: string[] }) => {
     const q = new URLSearchParams();
@@ -101,6 +109,15 @@ export const api = {
     if (params?.radius_km != null) q.set('radius_km', String(params.radius_km));
     const qs = q.toString();
     return http<any[]>(`/api/sites/${encodeURIComponent(site)}/neighbors/traffic/voice${qs ? `?${qs}` : ''}`);
+  },
+  eventDates: (site: string, params?: { limit?: number; offset?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.limit != null) q.set('limit', String(params.limit));
+    if (params?.offset != null) q.set('offset', String(params.offset));
+    const qs = q.toString();
+    return http<Array<{ tech: '3G'|'4G'; date: string; add_cell: number|null; delete_cell: number|null; total_cell: number|null; remark: string|null }>>(
+      `/api/sites/${encodeURIComponent(site)}/event-dates${qs ? `?${qs}` : ''}`
+    );
   },
   evaluate: (args: { site_att: string; input_date: string; threshold?: number; period?: number; guard?: number }) =>
     httpPost<{ site_att: string; input_date: string; options: any; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; metrics: Array<any> }>(

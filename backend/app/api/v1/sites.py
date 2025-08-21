@@ -95,6 +95,91 @@ def search_sites(q: str = Query(..., min_length=1), limit: int = Query(10, ge=1,
         engine.dispose()
 
 
+@router.get("/{site_att}/neighbors/list")
+def get_neighbors_list(
+    site_att: str,
+    radius_km: float = Query(5, ge=0.1, le=50),
+):
+    """Return neighbor sites with basic attributes: name, region, province, municipality, vendor.
+
+    The function detects column names in master_node_total to be resilient to schema variations.
+    """
+    engine = create_connection()
+    if engine is None:
+        return []
+    try:
+        # Detect actual column names in master_node_total
+        cols_query = text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'master_node_total'
+            """
+        )
+        with engine.connect() as conn:
+            cols = {row[0] for row in conn.execute(cols_query)}
+
+        id_col = 'att_name' if 'att_name' in cols else ('node' if 'node' in cols else None)
+        lat_col = 'latitude' if 'latitude' in cols else ('lat_wgs84' if 'lat_wgs84' in cols else None)
+        lon_col = 'longitude' if 'longitude' in cols else ('long_wgs84' if 'long_wgs84' in cols else None)
+
+        # optional attribute columns
+        region_col = 'region' if 'region' in cols else None
+        province_col = 'province' if 'province' in cols else None
+        municipality_col = 'municipality' if 'municipality' in cols else ('municipio' if 'municipio' in cols else None)
+        vendor_col = 'vendor' if 'vendor' in cols else ('vendor_name' if 'vendor_name' in cols else None)
+
+        if not id_col or not lat_col or not lon_col:
+            return []
+
+        radius_meters = radius_km * 1000
+
+        select_attrs = []
+        if region_col:
+            select_attrs.append(f"m.{region_col} AS region")
+        else:
+            select_attrs.append("NULL::text AS region")
+        if province_col:
+            select_attrs.append(f"m.{province_col} AS province")
+        else:
+            select_attrs.append("NULL::text AS province")
+        if municipality_col:
+            select_attrs.append(f"m.{municipality_col} AS municipality")
+        else:
+            select_attrs.append("NULL::text AS municipality")
+        if vendor_col:
+            select_attrs.append(f"m.{vendor_col} AS vendor")
+        else:
+            select_attrs.append("NULL::text AS vendor")
+
+        sql = f"""
+            WITH center AS (
+                SELECT {id_col} AS id, {lat_col} AS lat, {lon_col} AS lon
+                FROM public.master_node_total
+                WHERE {id_col} = :site
+                AND {lat_col} IS NOT NULL AND {lon_col} IS NOT NULL
+            )
+            SELECT m.{id_col} AS site_name,
+                   {', '.join(select_attrs)}
+            FROM public.master_node_total m
+            CROSS JOIN center c
+            WHERE m.{id_col} IS NOT NULL
+              AND m.{lat_col} IS NOT NULL AND m.{lon_col} IS NOT NULL
+              AND m.{id_col} <> c.id
+              AND ST_DWithin(
+                    ST_GeogFromText('POINT(' || c.lon || ' ' || c.lat || ')'),
+                    ST_GeogFromText('POINT(' || m.{lon_col} || ' ' || m.{lat_col} || ')'),
+                    :radius
+              )
+            ORDER BY site_name ASC
+        """
+
+        df = pd.read_sql_query(text(sql), engine, params={"site": site_att, "radius": radius_meters})
+        return df_json_records(df)
+    finally:
+        engine.dispose()
+
+
 @router.get("/{site_att}/ranges")
 def get_site_ranges(site_att: str, input_date: Optional[date] = Query(None)):
     """
@@ -177,6 +262,46 @@ def get_site_cqi(
     if limit is not None:
         df = df.iloc[offset : offset + limit]
     return df_json_records(df)
+
+
+@router.get("/{site_att}/event-dates")
+def get_site_event_dates(
+    site_att: str,
+    limit: Optional[int] = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+):
+    """Return combined LTE and UMTS cell change event dates for a given site.
+
+    Fields: technology (3G/4G), date, add_cell, delete_cell, total_cell, remark.
+    Ordered by date DESC, technology ASC. Supports pagination.
+    """
+    engine = create_connection()
+    if engine is None:
+        return []
+    try:
+        sql = text(
+            """
+            SELECT tech, date, add_cell, delete_cell, total_cell, remark FROM (
+                SELECT '4G'::text AS tech, date, add_cell, delete_cell, total_cell, remark
+                FROM public.lte_cell_change_event
+                WHERE att_name = :site
+                UNION ALL
+                SELECT '3G'::text AS tech, date, add_cell, delete_cell, total_cell, remark
+                FROM public.umts_cell_change_event
+                WHERE att_name = :site
+            ) t
+            ORDER BY date DESC, tech ASC
+            LIMIT :limit OFFSET :offset
+            """
+        )
+        df = pd.read_sql_query(sql, engine, params={"site": site_att, "limit": limit, "offset": offset})
+        if df is None or df.empty:
+            return []
+        if 'date' in df.columns:
+            df['date'] = df['date'].astype(str)
+        return df_json_records(df)
+    finally:
+        engine.dispose()
 
 
 # --- Neighbors Endpoints (M2) ---
