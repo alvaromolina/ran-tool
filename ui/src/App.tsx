@@ -485,13 +485,13 @@ function App() {
               </div>
               <div style={{ marginTop: 6 }}>
                 <button
-                  className="btn-grid button-show"
+                  className="btn-grid btn-primary button-show button-small"
                   type="button"
                   onClick={() => setShowEventDatesModal(true)}
                   disabled={!isValidSite}
                   title={isValidSite ? 'Open event dates' : 'Select a valid site first'}
                 >
-                  Event dates…
+                  Suggested event dates…
                 </button>
               </div>
             </label>
