@@ -11,12 +11,12 @@ from pydantic import BaseModel, Field
 from .sites import df_json_records
 from cell_change_evolution.select_db_master_node import get_max_date
 from cell_change_evolution.select_db_cqi_daily import (
-    get_cqi_daily,
+    get_cqi_daily_calculated,
     get_traffic_data_daily,
     get_traffic_voice_daily,
 )
 from cell_change_evolution.select_db_neighbor_cqi_daily import (
-    get_neighbor_cqi_daily,
+    get_neighbor_cqi_daily_calculated,
     get_neighbor_traffic_data,
     get_neighbor_traffic_voice,
 )
@@ -164,7 +164,7 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
     t0 = time.perf_counter()
     if metric == 'site_cqi':
         print(f"[evaluate] Computing {metric} for {site_att} ({tech}) from {frm} to {to}")
-        df = _call_with_timeout(get_cqi_daily, 10.0, att_name=site_att, min_date=frm, max_date=to, technology=tech)
+        df = _call_with_timeout(get_cqi_daily_calculated, 10.0, att_name=site_att, min_date=frm, max_date=to, technology=tech)
         # select_db_cqi_daily outputs: umts_cqi, lte_cqi, nr_cqi
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
         if timings is not None:
@@ -195,7 +195,7 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_cqi':
-        df = _call_with_timeout(get_neighbor_cqi_daily, 10.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
+        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
@@ -216,12 +216,11 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
 
 
 @router.post("")
-def evaluate(req: EvaluateRequest) -> Any:
+def evaluate(req: EvaluateRequest) -> EvaluateResponse:
     # Define windows per §6
     max_d = _call_with_timeout(get_max_date, 8.0)
     max_date_source = "db"
 
-    return None
 
     # Fallback: if DB global max is unavailable, try deriving from this site's available data within a bounded window
     if not max_d:
@@ -231,7 +230,7 @@ def evaluate(req: EvaluateRequest) -> Any:
         candidates: list = []
         # We purposefully keep tight timeouts to avoid stalls
         try:
-            df1 = _call_with_timeout(get_cqi_daily, 10, att_name=req.site_att, min_date=str(probe_min), max_date=str(probe_max), technology=None)
+            df1 = _call_with_timeout(get_cqi_daily_calculated, 10, att_name=req.site_att, min_date=str(probe_min), max_date=str(probe_max), technology=None)
             if isinstance(df1, pd.DataFrame) and not df1.empty and 'time' in df1.columns:
                 tmax = pd.to_datetime(df1['time'], errors='coerce').max()
                 if pd.notna(tmax):

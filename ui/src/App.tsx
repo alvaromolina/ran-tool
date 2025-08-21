@@ -581,7 +581,7 @@ function App() {
                         const siteMetrics = (evalResult.metrics || []).filter((m: any) => typeof m?.name === 'string' && m.name.startsWith('Site '))
                         const nbMetrics = (evalResult.metrics || []).filter((m: any) => typeof m?.name === 'string' && m.name.startsWith('Neighbors '))
                         const Table = ({ title, rows }: { title: string; rows: any[] }) => {
-                          const fmtVal = (v: any) => (v != null && Number.isFinite(v)) ? (Number(v).toFixed(1)) : '—'
+                          const fmtVal = (v: any) => (v != null && Number.isFinite(v)) ? (Number(v).toFixed(2)) : '—'
                           const fmtPct = (v: any) => (v != null && Number.isFinite(v)) ? `${(Number(v)*100).toFixed(1)}%` : '—'
                           return (
                             <div className="eval-col">
