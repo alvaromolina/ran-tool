@@ -4,6 +4,19 @@ import {
   BarChart, Bar, ReferenceLine, ReferenceArea
 } from 'recharts';
 
+function colorForSeries(key: string, idx: number): string {
+  const k = (key || '').toLowerCase();
+  // 3G / UMTS
+  if (k.includes('3g') || k.includes('umts')) return '#ff3b30';
+  // 4G / LTE / VoLTE
+  if (k.includes('4g') || k.includes('lte') || k.includes('volte')) return '#34c759';
+  // 5G / NR
+  if (k.includes('5g') || k.includes('nr')) return '#007aff';
+  // Fallback palette
+  const fallback = ["#007aff", "#ff3b30", "#34c759", "#ff9f0a", "#5856d6"];
+  return fallback[idx % fallback.length];
+}
+
 function pickXKey(rows: any[]): string | null {
   if (!rows || rows.length === 0) return null;
   const candidateKeys = ['date', 'time', 'day', 'timestamp'];
@@ -139,7 +152,7 @@ export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: nu
             <ReferenceLine key={`vl-${idx}`} x={l.x} stroke={l.stroke || '#111'} strokeDasharray={l.strokeDasharray || '6 6'} strokeWidth={l.strokeWidth || 3} label={l.label} />
           ))}
           {series.map((s, i) => (
-            <Line key={s} type="monotone" dataKey={s} stroke={["#007aff", "#ff3b30", "#34c759", "#ff9f0a", "#5856d6"][i % 5]} dot={false} strokeWidth={2} />
+            <Line key={s} type="monotone" dataKey={s} stroke={colorForSeries(s, i)} dot={false} strokeWidth={2} />
           ))}
         </LineChart>
       </ResponsiveContainer>
@@ -233,7 +246,7 @@ export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: n
           <Tooltip />
           <Legend />
           {series.map((s, i) => (
-            <Bar key={s} dataKey={s} stackId="a" fill={["#0a84ff", "#ff375f", "#32d74b", "#ffd60a", "#5e5ce6"][i % 5]} stroke="none" />
+            <Bar key={s} dataKey={s} stackId="a" fill={colorForSeries(s, i)} stroke="none" />
           ))}
           {snappedRegions.map((r, idx) => (
             <ReferenceArea
