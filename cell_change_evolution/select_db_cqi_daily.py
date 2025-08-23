@@ -152,71 +152,59 @@ def calculate_unified_cqi_nr_row(row):
     C5 = -0.0002006621  # per kbps; formula multiplies Mbps*1000
     C6 = -0.0002006621
 
-    # Acc MN (%), prefer combined
-    acc_mn = row.get('acc_mn')
-    if acc_mn is None:
-        # Build from vendor counters: RRC * S1 * ERAB_SR_4GENDC
-        acc_rrc_num = _zn(row.get('e5g_acc_rrc_num_n')) + _zn(row.get('n5g_acc_rrc_num_n'))
-        acc_rrc_den = _zn(row.get('e5g_acc_rrc_den_n')) + _zn(row.get('n5g_acc_rrc_den_n'))
-        s1_num = _zn(row.get('e5g_s1_sr_num_n')) + _zn(row.get('n5g_s1_sr_num_n'))
-        s1_den = _zn(row.get('e5g_s1_sr_den_n')) + _zn(row.get('n5g_s1_sr_den_n'))
-        erab4g_num = _zn(row.get('e5g_nsa_acc_erab_sr_4gendc_num_n')) + _zn(row.get('n5g_nsa_acc_erab_sr_4gendc_num_n'))
-        erab4g_den = _zn(row.get('e5g_nsa_acc_erab_sr_4gendc_den_n')) + _zn(row.get('n5g_nsa_acc_erab_sr_4gendc_den_n'))
-        acc_mn = ((acc_rrc_num/acc_rrc_den if acc_rrc_den else 0)
-                  * (s1_num/s1_den if s1_den else 0)
-                  * (erab4g_num/erab4g_den if erab4g_den else 0)) * 100
+    # Compute ALL KPIs from vendor totals to match vectorized implementation
+    def _sdiv(n, d):
+        try:
+            n = 0 if n is None else float(n)
+            d = float(d)
+            return (n / d) if d else 0.0
+        except Exception:
+            return 0.0
 
-    # Acc SN (%), prefer combined
-    acc_sn = row.get('acc_sn')
-    if acc_sn is None:
-        # Use 5G leg ERAB success over attempts if available
-        succ_5g = _zn(row.get('e5g_nsa_acc_erab_succ_5gendc_5gleg_n')) + _zn(row.get('n5g_nsa_acc_erab_succ_5gendc_5gleg_n'))
-        att_5g  = _zn(row.get('e5g_nsa_acc_erab_att_5gendc_5gleg_n')) + _zn(row.get('n5g_nsa_acc_erab_att_5gendc_5gleg_n'))
-        acc_sn = (succ_5g/att_5g)*100 if att_5g else None
+    # Accessibility MN (%): RRC * S1 * ERAB SR 4G ENDC
+    acc_rrc_num = _zn(row.get('e5g_acc_rrc_num_n')) + _zn(row.get('n5g_acc_rrc_num_n'))
+    acc_rrc_den = _zn(row.get('e5g_acc_rrc_den_n')) + _zn(row.get('n5g_acc_rrc_den_n'))
+    s1_num = _zn(row.get('e5g_s1_sr_num_n')) + _zn(row.get('n5g_s1_sr_num_n'))
+    s1_den = _zn(row.get('e5g_s1_sr_den_n')) + _zn(row.get('n5g_s1_sr_den_n'))
+    erab4g_num = _zn(row.get('e5g_nsa_acc_erab_sr_4gendc_num_n')) + _zn(row.get('n5g_nsa_acc_erab_sr_4gendc_num_n'))
+    erab4g_den = _zn(row.get('e5g_nsa_acc_erab_sr_4gendc_den_n')) + _zn(row.get('n5g_nsa_acc_erab_sr_4gendc_den_n'))
+    acc_mn = (_sdiv(acc_rrc_num, acc_rrc_den) * _sdiv(s1_num, s1_den) * _sdiv(erab4g_num, erab4g_den)) * 100.0
 
-    # Ret MN (%), prefer combined
-    ret_mn = row.get('ret_mn')
-    if ret_mn is None:
-        drop_4g = _zn(row.get('e5g_nsa_ret_erab_drop_4gendc_n')) + _zn(row.get('n5g_nsa_ret_erab_drop_4gendc_n'))
-        att_4g  = _zn(row.get('e5g_nsa_ret_erab_att_4gendc_n')) + _zn(row.get('n5g_nsa_ret_erab_att_4gendc_n'))
-        ret_mn = (1 - (drop_4g/att_4g)) * 100 if att_4g else None
+    # Accessibility SN (%): 5G leg ERAB succ/att
+    succ_5g = _zn(row.get('e5g_nsa_acc_erab_succ_5gendc_5gleg_n')) + _zn(row.get('n5g_nsa_acc_erab_succ_5gendc_5gleg_n'))
+    att_5g  = _zn(row.get('e5g_nsa_acc_erab_att_5gendc_5gleg_n')) + _zn(row.get('n5g_nsa_acc_erab_att_5gendc_5gleg_n'))
+    acc_sn = _sdiv(succ_5g, att_5g) * 100.0
 
-    # Endc Ret Tot (%), prefer combined
-    endc_ret_tot = row.get('endc_ret_tot')
-    if endc_ret_tot is None:
-        drop_54 = _zn(row.get('e5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n')) + _zn(row.get('n5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n'))
-        den_54  = _zn(row.get('e5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n')) + _zn(row.get('n5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n'))
-        endc_ret_tot = (1 - (drop_54/den_54)) * 100 if den_54 else None
+    # Retainability MN (%)
+    drop_4g = _zn(row.get('e5g_nsa_ret_erab_drop_4gendc_n')) + _zn(row.get('n5g_nsa_ret_erab_drop_4gendc_n'))
+    att_4g  = _zn(row.get('e5g_nsa_ret_erab_att_4gendc_n')) + _zn(row.get('n5g_nsa_ret_erab_att_4gendc_n'))
+    ret_mn = (1 - _sdiv(drop_4g, att_4g)) * 100.0
 
-    # Throughputs (Mbps), prefer combined
-    thp_mn = row.get('thp_mn')
-    if thp_mn is None:
-        # Prefer MAC DL avg Mbps numer/denom if provided, else PDCP avg
-        mac_num = _zn(row.get('e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n')) + _zn(row.get('n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n'))
-        mac_den = _zn(row.get('e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n')) + _zn(row.get('n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n'))
-        mac_avg = (mac_num/mac_den) if mac_den else None
-        pdcp_num = _zn(row.get('e5g_nsa_thp_mn_num')) + _zn(row.get('n5g_nsa_thp_mn_num'))
-        pdcp_den = _zn(row.get('e5g_nsa_thp_mn_den')) + _zn(row.get('n5g_nsa_thp_mn_den'))
-        pdcp_avg = (pdcp_num/pdcp_den) if pdcp_den else None
-        thp_mn = mac_avg if mac_avg is not None else (pdcp_avg if pdcp_avg is not None else 0)
+    # ENDC retainability total (%)
+    drop_54 = _zn(row.get('e5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n')) + _zn(row.get('n5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n'))
+    den_54  = _zn(row.get('e5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n')) + _zn(row.get('n5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n'))
+    endc_ret_tot = (1 - _sdiv(drop_54, den_54)) * 100.0
 
-    thp_sn = row.get('thp_sn')
-    if thp_sn is None:
-        # Use MAC DL avg Mbps from 5G leg if available
-        mac_num = _zn(row.get('e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n')) + _zn(row.get('n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n'))
-        mac_den = _zn(row.get('e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n')) + _zn(row.get('n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n'))
-        thp_sn = (mac_num/mac_den) if mac_den else 0
+    # Throughputs (Mbps)
+    # Prefer MAC (5G leg) for SN; for MN use PDCP if available else MAC
+    mac_sn_num = _zn(row.get('e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n')) + _zn(row.get('n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n'))
+    mac_sn_den = _zn(row.get('e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n')) + _zn(row.get('n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n'))
+    thp_sn = _sdiv(mac_sn_num, mac_sn_den)
+    pdcp_mn_num = _zn(row.get('e5g_nsa_thp_mn_num')) + _zn(row.get('n5g_nsa_thp_mn_num'))
+    pdcp_mn_den = _zn(row.get('e5g_nsa_thp_mn_den')) + _zn(row.get('n5g_nsa_thp_mn_den'))
+    thp_mn_pdcp = _sdiv(pdcp_mn_num, pdcp_mn_den)
+    thp_mn = thp_mn_pdcp if thp_mn_pdcp else _sdiv(mac_sn_num, mac_sn_den)
 
-    # Compose final CQI using provided formula
+    # Compose final CQI (0..1 scale)
     def _p(v):
         return (v or 0) / 100.0
 
-    term1 = W1 * math.exp((1 - _p(acc_mn)) * C1)
-    term2 = W2 * math.exp((1 - _p(acc_sn)) * C2)
-    term3 = W3 * math.exp((1 - _p(ret_mn)) * C3)
-    term4 = W4 * math.exp((1 - _p(endc_ret_tot)) * C4)
-    term5 = W5 * (1 - math.exp((thp_mn or 0) * 1000.0 * C5))
-    term6 = W6 * (1 - math.exp((thp_sn or 0) * 1000.0 * C6))
+    term1 = W1 * math.exp((1 - _p(acc_mn)) * -14.92648157)
+    term2 = W2 * math.exp((1 - _p(acc_sn)) * -26.68090256)
+    term3 = W3 * math.exp((1 - _p(ret_mn)) * -14.92648157)
+    term4 = W4 * math.exp((1 - _p(endc_ret_tot)) * -26.68090256)
+    term5 = W5 * (1 - math.exp((thp_mn or 0) * 1000.0 * -0.0002006621))
+    term6 = W6 * (1 - math.exp((thp_sn or 0) * 1000.0 * -0.0002006621))
     nr_cqi = term1 + term2 + term3 + term4 + term5 + term6
     try:
         return round(float(nr_cqi), 8)

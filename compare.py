@@ -144,3 +144,101 @@ df['lte_cqi_row'] = np.round(df['lte_cqi_row'].astype(float), 8)
 df['abs_diff'] = np.abs(df['lte_cqi_row'] - df['lte_cqi_vec'])
 
 print(df[['time','lte_cqi_row','lte_cqi_vec','abs_diff']])
+
+# ---------------- NR (5G) comparison ----------------
+from cell_change_evolution.select_db_cqi_daily import calculate_unified_cqi_nr_row
+
+# Build a small NR sample dataset (two rows)
+df_nr = pd.DataFrame([
+    {
+        'time': '2025-01-01', 'site_att': 'SITE_A',
+        # Accessibility MN components
+        'e5g_acc_rrc_num_n': 950, 'e5g_acc_rrc_den_n': 1000,
+        'n5g_acc_rrc_num_n': 900, 'n5g_acc_rrc_den_n': 950,
+        'e5g_s1_sr_num_n': 980, 'e5g_s1_sr_den_n': 1000,
+        'n5g_s1_sr_num_n': 940, 'n5g_s1_sr_den_n': 960,
+        'e5g_nsa_acc_erab_sr_4gendc_num_n': 970, 'e5g_nsa_acc_erab_sr_4gendc_den_n': 990,
+        'n5g_nsa_acc_erab_sr_4gendc_num_n': 930, 'n5g_nsa_acc_erab_sr_4gendc_den_n': 950,
+        # Accessibility SN (5G leg)
+        'e5g_nsa_acc_erab_succ_5gendc_5gleg_n': 880, 'e5g_nsa_acc_erab_att_5gendc_5gleg_n': 900,
+        'n5g_nsa_acc_erab_succ_5gendc_5gleg_n': 860, 'n5g_nsa_acc_erab_att_5gendc_5gleg_n': 880,
+        # Retainability MN
+        'e5g_nsa_ret_erab_drop_4gendc_n': 10, 'e5g_nsa_ret_erab_att_4gendc_n': 1000,
+        'n5g_nsa_ret_erab_drop_4gendc_n': 12, 'n5g_nsa_ret_erab_att_4gendc_n': 1000,
+        # ENDC Ret Tot
+        'e5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n': 8, 'e5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n': 1000,
+        'n5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n': 9, 'n5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n': 1000,
+        # Throughputs
+        'e5g_nsa_thp_mn_num': 5000, 'e5g_nsa_thp_mn_den': 100,
+        'n5g_nsa_thp_mn_num': 4800, 'n5g_nsa_thp_mn_den': 100,
+        'e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n': 12000, 'e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n': 400,
+        'n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n': 11000, 'n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n': 380,
+    },
+    {
+        'time': '2025-01-02', 'site_att': 'SITE_A',
+        'e5g_acc_rrc_num_n': 900, 'e5g_acc_rrc_den_n': 1000,
+        'n5g_acc_rrc_num_n': 850, 'n5g_acc_rrc_den_n': 950,
+        'e5g_s1_sr_num_n': 950, 'e5g_s1_sr_den_n': 1000,
+        'n5g_s1_sr_num_n': 900, 'n5g_s1_sr_den_n': 960,
+        'e5g_nsa_acc_erab_sr_4gendc_num_n': 940, 'e5g_nsa_acc_erab_sr_4gendc_den_n': 990,
+        'n5g_nsa_acc_erab_sr_4gendc_num_n': 900, 'n5g_nsa_acc_erab_sr_4gendc_den_n': 950,
+        'e5g_nsa_acc_erab_succ_5gendc_5gleg_n': 820, 'e5g_nsa_acc_erab_att_5gendc_5gleg_n': 900,
+        'n5g_nsa_acc_erab_succ_5gendc_5gleg_n': 800, 'n5g_nsa_acc_erab_att_5gendc_5gleg_n': 880,
+        'e5g_nsa_ret_erab_drop_4gendc_n': 15, 'e5g_nsa_ret_erab_att_4gendc_n': 1000,
+        'n5g_nsa_ret_erab_drop_4gendc_n': 16, 'n5g_nsa_ret_erab_att_4gendc_n': 1000,
+        'e5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n': 12, 'e5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n': 1000,
+        'n5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n': 13, 'n5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n': 1000,
+        'e5g_nsa_thp_mn_num': 4200, 'e5g_nsa_thp_mn_den': 100,
+        'n5g_nsa_thp_mn_num': 4000, 'n5g_nsa_thp_mn_den': 100,
+        'e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n': 10000, 'e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n': 400,
+        'n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n': 9000, 'n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n': 380,
+    },
+])
+
+# Row-based NR calculation (0..1)
+df_nr['nr_cqi_row'] = df_nr.apply(calculate_unified_cqi_nr_row, axis=1)
+
+# Vectorized NR calculation (0..1) mirroring apply_nr_calculations without the final *100
+acc_rrc_num_total = df_nr['e5g_acc_rrc_num_n'] + df_nr['n5g_acc_rrc_num_n']
+acc_rrc_den_total = df_nr['e5g_acc_rrc_den_n'] + df_nr['n5g_acc_rrc_den_n']
+s1_sr_num_total = df_nr['e5g_s1_sr_num_n'] + df_nr['n5g_s1_sr_num_n']
+s1_sr_den_total = df_nr['e5g_s1_sr_den_n'] + df_nr['n5g_s1_sr_den_n']
+erab_4g_num_total = df_nr['e5g_nsa_acc_erab_sr_4gendc_num_n'] + df_nr['n5g_nsa_acc_erab_sr_4gendc_num_n']
+erab_4g_den_total = df_nr['e5g_nsa_acc_erab_sr_4gendc_den_n'] + df_nr['n5g_nsa_acc_erab_sr_4gendc_den_n']
+erab_5g_num_total = df_nr['e5g_nsa_acc_erab_succ_5gendc_5gleg_n'] + df_nr['n5g_nsa_acc_erab_succ_5gendc_5gleg_n']
+erab_5g_den_total = df_nr['e5g_nsa_acc_erab_att_5gendc_5gleg_n'] + df_nr['n5g_nsa_acc_erab_att_5gendc_5gleg_n']
+ret_4g_drop_total = df_nr['e5g_nsa_ret_erab_drop_4gendc_n'] + df_nr['n5g_nsa_ret_erab_drop_4gendc_n']
+ret_4g_att_total = df_nr['e5g_nsa_ret_erab_att_4gendc_n'] + df_nr['n5g_nsa_ret_erab_att_4gendc_n']
+ret_5g_drop_total = df_nr['e5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n'] + df_nr['n5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n']
+ret_5g_den_total = df_nr['e5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n'] + df_nr['n5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n']
+thp_mn_num_total = df_nr['e5g_nsa_thp_mn_num'] + df_nr['n5g_nsa_thp_mn_num']
+thp_mn_den_total = df_nr['e5g_nsa_thp_mn_den'] + df_nr['n5g_nsa_thp_mn_den']
+thp_sn_num_total = df_nr['e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n'] + df_nr['n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n']
+thp_sn_den_total = df_nr['e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n'] + df_nr['n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n']
+
+nr_acc_mn = _safe_div(acc_rrc_num_total, acc_rrc_den_total) * _safe_div(s1_sr_num_total, s1_sr_den_total) * _safe_div(erab_4g_num_total, erab_4g_den_total) * 100
+nr_acc_sn = _safe_div(erab_5g_num_total, erab_5g_den_total) * 100
+nr_ret_mn = (1 - _safe_div(ret_4g_drop_total, ret_4g_att_total)) * 100
+nr_endc_ret_tot = (1 - _safe_div(ret_5g_drop_total, ret_5g_den_total)) * 100
+nr_thp_mn = _safe_div(thp_mn_num_total, thp_mn_den_total)
+nr_thp_sn = _safe_div(thp_sn_num_total, thp_sn_den_total)
+
+acc_mn_p = nr_acc_mn / 100
+acc_sn_p = nr_acc_sn / 100
+ret_mn_p = nr_ret_mn / 100
+endc_p = nr_endc_ret_tot / 100
+
+term1 = 0.17 * np.exp((1 - acc_mn_p) * -14.92648157)
+term2 = 0.13 * np.exp((1 - acc_sn_p) * -26.68090256)
+term3 = 0.17 * np.exp((1 - ret_mn_p) * -14.92648157)
+term4 = 0.13 * np.exp((1 - endc_p) * -26.68090256)
+term5 = 0.20 * (1 - np.exp(nr_thp_mn * 1000 * -0.0002006621))
+term6 = 0.20 * (1 - np.exp(nr_thp_sn * 1000 * -0.0002006621))
+nr_cqi_vec = term1 + term2 + term3 + term4 + term5 + term6
+
+df_nr['nr_cqi_vec'] = np.round(nr_cqi_vec.astype(float), 8)
+df_nr['nr_cqi_row'] = np.round(df_nr['nr_cqi_row'].astype(float), 8)
+df_nr['abs_diff'] = np.abs(df_nr['nr_cqi_row'] - df_nr['nr_cqi_vec'])
+
+print("\nNR comparison:")
+print(df_nr[['time','nr_cqi_row','nr_cqi_vec','abs_diff']])
