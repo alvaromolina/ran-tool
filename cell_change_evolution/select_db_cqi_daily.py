@@ -296,83 +296,81 @@ def calculate_unified_cqi_lte_row(row):
     """
     import math
 
-    # Accessibility (percent 0..100)
-    acc = row.get('accessibility_ps')
-    if acc is None:
-        vendors = ['h4g', 's4g', 'e4g', 'n4g']
-        rrc_succ = _sum_fields(row, [f"{v}_rrc_success_all" for v in vendors])
-        rrc_att  = _sum_fields(row, [f"{v}_rrc_attemps_all" for v in vendors])
-        s1_succ  = _sum_fields(row, [f"{v}_s1_success" for v in vendors])
-        s1_att   = _sum_fields(row, [f"{v}_s1_attemps" for v in vendors])
-        erab_succ= _sum_fields(row, [f"{v}_erab_success" for v in vendors])
-        erab_att = _sum_fields(row, [f"{v}_erabs_attemps" for v in vendors])
-        acc = ( (rrc_succ/rrc_att if rrc_att else 0)
-                * (s1_succ/s1_att if s1_att else 0)
-                * (erab_succ/erab_att if erab_att else 0) ) * 100
+    # Helper for safe division
+    def _sdiv(n, d):
+        try:
+            n = 0 if n is None else float(n)
+            d = float(d)
+            return (n / d) if d else 0.0
+        except Exception:
+            return 0.0
 
-    # Retainability (percent 0..100)
-    ret = row.get('retainability_ps')
-    if ret is None:
-        vendors = ['h4g', 's4g', 'e4g', 'n4g']
-        ret_num   = _sum_fields(row, [f"{v}_retainability_num" for v in vendors])
-        ret_denom = _sum_fields(row, [f"{v}_retainability_denom" for v in vendors])
-        ret = (1 - (ret_num/ret_denom if ret_denom else 0)) * 100
+    vendors = ['h4g', 's4g', 'e4g', 'n4g']
+
+    # Accessibility (%) — always computed from vendor totals
+    erab_success = _sum_fields(row, [f"{v}_erab_success" for v in vendors])
+    erabs_attemps = _sum_fields(row, [f"{v}_erabs_attemps" for v in vendors])
+    rrc_success = _sum_fields(row, [f"{v}_rrc_success_all" for v in vendors])
+    rrc_attemps = _sum_fields(row, [f"{v}_rrc_attemps_all" for v in vendors])
+    s1_success  = _sum_fields(row, [f"{v}_s1_success" for v in vendors])
+    s1_attemps  = _sum_fields(row, [f"{v}_s1_attemps" for v in vendors])
+    acc = (_sdiv(erab_success, erabs_attemps) *
+           _sdiv(rrc_success, rrc_attemps) *
+           _sdiv(s1_success, s1_attemps) * 100.0)
+
+    # Retainability (%) — from vendor totals
+    ret_num   = _sum_fields(row, [f"{v}_retainability_num" for v in vendors])
+    ret_denom = _sum_fields(row, [f"{v}_retainability_denom" for v in vendors])
+    ret = (1 - _sdiv(ret_num, ret_denom)) * 100.0
 
     # IRAT to 3G rate (fraction 0..1)
-    irat = row.get('irat_ps')
-    if irat is None:
-        vendors = ['h4g', 's4g', 'e4g', 'n4g']
-        irat_events = _sum_fields(row, [f"{v}_irat_4g_to_3g_events" for v in vendors])
-        erab_estab  = _sum_fields(row, [f"{v}_erab_succ_established" for v in vendors])
-        irat = (irat_events/erab_estab) if erab_estab else 0
-    # normalize if value looks like percent
-    if irat is not None and irat > 1:
-        irat = irat / 100.0
+    # IRAT to 3G rate (fraction 0..1) — from vendor totals
+    irat_events = _sum_fields(row, [f"{v}_irat_4g_to_3g_events" for v in vendors])
+    irat = _sdiv(irat_events, erab_success)  # fraction 0..1
 
     # Throughput DL (kbps)
-    thp_dl = row.get('thpt_dl_kbps_ran_drb')
-    if thp_dl is None:
-        vendors = ['h4g', 's4g', 'e4g', 'n4g']
-        thp_num = _sum_fields(row, [f"{v}_thpt_user_dl_kbps_num" for v in vendors])
-        thp_den = _sum_fields(row, [f"{v}_thpt_user_dl_kbps_denom" for v in vendors])
-        thp_dl = (thp_num/thp_den) if thp_den else 0
+    # Throughput DL (kbps) — from vendor totals
+    thp_num = _sum_fields(row, [f"{v}_thpt_user_dl_kbps_num" for v in vendors])
+    thp_den = _sum_fields(row, [f"{v}_thpt_user_dl_kbps_denom" for v in vendors])
+    thp_dl = _sdiv(thp_num, thp_den)
 
-    # 4G on 3G fraction (0..1)
-    fourgon3g = row.get('f4gon3g')
-    if fourgon3g is None:
-        vendors = ['h4g', 's4g', 'e4g', 'n4g']
-        t3g = _sum_fields(row, [f"{v}_time3g" for v in vendors])
-        t4g = _sum_fields(row, [f"{v}_time4g" for v in vendors])
-        denom = t3g + t4g
-        fourgon3g = (t4g/denom) if denom else 0
-    if fourgon3g is not None and fourgon3g > 1:
-        fourgon3g = fourgon3g / 100.0
+    # 3G share p3g = time3g / (time3g + time4g) — from vendor totals
+    t3g = _sum_fields(row, [f"{v}_time3g" for v in vendors])
+    t4g = _sum_fields(row, [f"{v}_time4g" for v in vendors])
+    p3g = _sdiv(t3g, (t3g + t4g))
 
     # Ookla latency (ms) and throughput (kbps equivalent)
-    latency = row.get('ookla_latency')
-    if latency is None:
-        vendors = ['h4g', 's4g', 'e4g', 'n4g']
-        lat_sum = _sum_fields(row, [f"{v}_sumavg_latency" for v in vendors])
-        dl_sum  = _sum_fields(row, [f"{v}_sumavg_dl_kbps" for v in vendors])
-        m_count = _sum_fields(row, [f"{v}_summuestras" for v in vendors])
-        latency = (lat_sum/m_count) if m_count else None
-    ookla_thp = row.get('ookla_thp')
-    if ookla_thp is None:
-        vendors = ['h4g', 's4g', 'e4g', 'n4g']
-        dl_sum  = _sum_fields(row, [f"{v}_sumavg_dl_kbps" for v in vendors])
-        m_count = _sum_fields(row, [f"{v}_summuestras" for v in vendors])
-        ookla_thp = (dl_sum/m_count) if m_count else 0
+    # Ookla latency (ms) and throughput (kbps equivalent) — from vendor totals
+    lat_sum = _sum_fields(row, [f"{v}_sumavg_latency" for v in vendors])
+    dl_sum  = _sum_fields(row, [f"{v}_sumavg_dl_kbps" for v in vendors])
+    m_count = _sum_fields(row, [f"{v}_summuestras" for v in vendors])
+    latency = _sdiv(lat_sum, m_count) if m_count else 0.0
+    ookla_thp = _sdiv(dl_sum, m_count) if m_count else 0.0
 
-    # Apply LTE CQI formula
-    term_acc = 0.25 * math.exp((1 - (acc or 0)/100.0) * -63.91668575)
-    term_ret = 0.25 * math.exp((1 - (ret or 0)/100.0) * -63.91668575)
-    term_irat = 0.05 * math.exp((irat or 0) * -22.31435513)
-    term_thp_ran = 0.30 * (1 - math.exp((thp_dl or 0) * -0.000282742))
-    term_4g3g = 0.05 * min(1.0, math.exp(((fourgon3g or 0) - 0.10) * -1.15717757))
-    term_lat = 0.05 * math.exp(((latency or 0) - 20.0) * -0.00526802578289131)
-    term_ookla = 0.05 * (1 - math.exp((ookla_thp or 0) * -0.00005364793041447))
+    # Apply LTE CQI formula (aligned with vectorized implementation)
+    def _as_float(x, default=0.0):
+        try:
+            return float(0 if x is None else x)
+        except Exception:
+            return default
 
-    lte_cqi = term_acc + term_ret + term_irat + term_thp_ran + term_4g3g + term_lat + term_ookla
+    acc_p = _as_float(acc) / 100.0
+    ret_p = _as_float(ret) / 100.0
+    irat_p = _as_float(irat)  # already a fraction 0..1
+    thp_dl_v = _as_float(thp_dl)
+    p3g_v = _as_float(p3g)
+    latency_v = _as_float(latency)
+    ookla_thp_v = _as_float(ookla_thp)
+
+    term_acc = 0.25 * math.exp((1 - acc_p) * -63.91668575)
+    term_ret = 0.25 * math.exp((1 - ret_p) * -63.91668575)
+    term_irat = 0.05 * math.exp((irat_p) * -22.31435513)
+    term_thp_ran = 0.30 * (1 - math.exp(thp_dl_v * -0.000282742))
+    term_4g3g = 0.05 * min(1.0, math.exp((p3g_v - 0.10) * -11.15717757))
+    term_lat = 0.05 * math.exp((latency_v - 20.0) * -0.00526802578289131)
+    term_ookla = 0.05 * (1 - math.exp(ookla_thp_v * -0.00005364793041447))
+
+    lte_cqi = (term_acc + term_ret + term_irat + term_thp_ran + term_4g3g + term_lat + term_ookla)
     try:
         return round(float(lte_cqi), 8)
     except Exception:

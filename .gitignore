@@ -45,3 +45,5 @@ nginx/certs/*
 lte_cell_change_event.csv
 umts_cell_change_event.csv
 mappings.csv
+ran-quality-backend.tar
+ran-quality-ui.tar
