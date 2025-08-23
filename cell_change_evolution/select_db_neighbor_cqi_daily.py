@@ -642,47 +642,32 @@ def _date_filter_params(min_date, max_date, alias: str, params: dict) -> str:
         conds.append(f"{alias}.date <= :max_{alias}")
     return (" AND ".join(conds)) if conds else ""
 
-def get_neighbor_umts_cqi_daily_calculated(site_list, min_date=None, max_date=None, radius_km=5):
-    """Compute UMTS (3G) unified CQI for neighbors per day, averaged across neighbors.
+def get_neighbor_umts_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5):
+    """Compute UMTS (3G) unified CQI for neighbors per day using row-based formulas.
 
-    Returns: columns [time, umts_cqi]
+    Input is a center site name; neighbors are derived via get_neighbor_sites(). The center
+    site is excluded. Returns columns [time, umts_cqi].
     """
+    try:
+        neighbors = get_neighbor_sites(site, radius_km=radius_km)
+    except Exception:
+        neighbors = []
+    if not neighbors:
+        return pd.DataFrame(columns=["time", "umts_cqi"])
+
     engine = create_connection()
     if engine is None:
         return None
-    if isinstance(site_list, str):
-        site_list = [site_list]
-    if not site_list:
-        return pd.DataFrame(columns=["time", "umts_cqi"])
     try:
-        radius_meters = radius_km * 1000
-        params = {"sites": site_list, "radius_meters": radius_meters}
+        params = {"neighbors": neighbors}
         dt = _date_filter_params(min_date, max_date, 'u', params)
-        sql = _neighbor_base_cte() + f"""
+        sql = f"""
         SELECT
           u.date AS time,
-          u.site_att,
-          u.h3g_rrc_success_cs, u.e3g_rrc_success_cs, u.n3g_rrc_success_cs,
-          u.h3g_rrc_attempts_cs, u.e3g_rrc_attempts_cs, u.n3g_rrc_attempts_cs,
-          u.h3g_nas_success_cs, u.e3g_nas_success_cs, u.n3g_nas_success_cs,
-          u.h3g_nas_attempts_cs, u.e3g_nas_attempts_cs, u.n3g_nas_attempts_cs,
-          u.h3g_rab_success_cs, u.e3g_rab_success_cs, u.n3g_rab_success_cs,
-          u.h3g_rab_attempts_cs, u.e3g_rab_attempts_cs, u.n3g_rab_attempts_cs,
-          u.h3g_drop_num_cs, u.e3g_drop_num_cs, u.n3g_drop_num_cs,
-          u.h3g_drop_denom_cs, u.e3g_drop_denom_cs, u.n3g_drop_denom_cs,
-          u.h3g_rrc_success_ps, u.e3g_rrc_success_ps, u.n3g_rrc_success_ps,
-          u.h3g_rrc_attempts_ps, u.e3g_rrc_attempts_ps, u.n3g_rrc_attempts_ps,
-          u.h3g_nas_success_ps, u.e3g_nas_success_ps, u.n3g_nas_success_ps,
-          u.h3g_nas_attempts_ps, u.e3g_nas_attempts_ps, u.n3g_nas_attempts_ps,
-          u.h3g_rab_success_ps, u.e3g_rab_success_ps, u.n3g_rab_success_ps,
-          u.h3g_rab_attempts_ps, u.e3g_rab_attempts_ps, u.n3g_rab_attempts_ps,
-          u.h3g_ps_retainability_num, u.e3g_ps_retainability_num, u.n3g_ps_retainability_num,
-          u.h3g_ps_retainability_denom, u.e3g_ps_retainability_denom, u.n3g_ps_retainability_denom,
-          u.h3g_thpt_user_dl_kbps_num, u.e3g_thpt_user_dl_kbps_num, u.n3g_thpt_user_dl_kbps_num,
-          u.h3g_thpt_user_dl_kbps_denom, u.e3g_thpt_user_dl_kbps_denom, u.n3g_thpt_user_dl_kbps_denom
-        FROM neighbor_sites ns
-        JOIN umts_cqi_daily u ON u.site_att = ns.att_name
-        {('WHERE ' + dt) if dt else ''}
+          u.*
+        FROM umts_cqi_daily u
+        WHERE u.site_att = ANY(:neighbors)
+        {('AND ' + dt) if dt else ''}
         ORDER BY u.date ASC, u.site_att ASC
         """
         df = pd.read_sql_query(text(sql), engine, params=params)
@@ -697,50 +682,32 @@ def get_neighbor_umts_cqi_daily_calculated(site_list, min_date=None, max_date=No
     finally:
         engine.dispose()
 
-def get_neighbor_lte_cqi_daily_calculated(site_list, min_date=None, max_date=None, radius_km=5):
-    """Compute LTE (4G) unified CQI for neighbors per day, averaged across neighbors.
+def get_neighbor_lte_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5):
+    """Compute LTE (4G) unified CQI for neighbors per day using row-based formulas.
 
-    Returns: columns [time, lte_cqi]
+    Input is a center site name; neighbors are derived via get_neighbor_sites(). The center
+    site is excluded. Returns columns [time, lte_cqi].
     """
+    try:
+        neighbors = get_neighbor_sites(site, radius_km=radius_km)
+    except Exception:
+        neighbors = []
+    if not neighbors:
+        return pd.DataFrame(columns=["time", "lte_cqi"])
+
     engine = create_connection()
     if engine is None:
         return None
-    if isinstance(site_list, str):
-        site_list = [site_list]
-    if not site_list:
-        return pd.DataFrame(columns=["time", "lte_cqi"])
     try:
-        radius_meters = radius_km * 1000
-        params = {"sites": site_list, "radius_meters": radius_meters}
+        params = {"neighbors": neighbors}
         dt = _date_filter_params(min_date, max_date, 'l', params)
-        sql = _neighbor_base_cte() + f"""
+        sql = f"""
         SELECT
           l.date AS time,
-          l.site_att,
-          l.accessibility_ps, l.retainability_ps, l.irat_ps,
-          l.thpt_dl_kbps_ran_drb,
-          l.f4gon3g,
-          l.ookla_latency,
-          l.ookla_thp,
-          l.h4g_rrc_success_all, l.h4g_rrc_attemps_all, l.h4g_s1_success, l.h4g_s1_attemps,
-          l.h4g_erab_success, l.h4g_erabs_attemps, l.h4g_retainability_num, l.h4g_retainability_denom,
-          l.h4g_irat_4g_to_3g_events, l.h4g_erab_succ_established, l.h4g_thpt_user_dl_kbps_num, l.h4g_thpt_user_dl_kbps_denom,
-          l.h4g_time3g, l.h4g_time4g, l.h4g_sumavg_latency, l.h4g_sumavg_dl_kbps, l.h4g_summuestras,
-          l.s4g_rrc_success_all, l.s4g_rrc_attemps_all, l.s4g_s1_success, l.s4g_s1_attemps,
-          l.s4g_erab_success, l.s4g_erabs_attemps, l.s4g_retainability_num, l.s4g_retainability_denom,
-          l.s4g_irat_4g_to_3g_events, l.s4g_erab_succ_established, l.s4g_thpt_user_dl_kbps_num, l.s4g_thpt_user_dl_kbps_denom,
-          l.s4g_time3g, l.s4g_time4g, l.s4g_sumavg_latency, l.s4g_sumavg_dl_kbps, l.s4g_summuestras,
-          l.e4g_rrc_success_all, l.e4g_rrc_attemps_all, l.e4g_s1_success, l.e4g_s1_attemps,
-          l.e4g_erab_success, l.e4g_erabs_attemps, l.e4g_retainability_num, l.e4g_retainability_denom,
-          l.e4g_irat_4g_to_3g_events, l.e4g_erab_succ_established, l.e4g_thpt_user_dl_kbps_num, l.e4g_thpt_user_dl_kbps_denom,
-          l.e4g_time3g, l.e4g_time4g, l.e4g_sumavg_latency, l.e4g_sumavg_dl_kbps, l.e4g_summuestras,
-          l.n4g_rrc_success_all, l.n4g_rrc_attemps_all, l.n4g_s1_success, l.n4g_s1_attemps,
-          l.n4g_erab_success, l.n4g_erabs_attemps, l.n4g_retainability_num, l.n4g_retainability_denom,
-          l.n4g_irat_4g_to_3g_events, l.n4g_erab_succ_established, l.n4g_thpt_user_dl_kbps_num, l.n4g_thpt_user_dl_kbps_denom,
-          l.n4g_time3g, l.n4g_time4g, l.n4g_sumavg_latency, l.n4g_sumavg_dl_kbps, l.n4g_summuestras
-        FROM neighbor_sites ns
-        JOIN lte_cqi_daily l ON l.site_att = ns.att_name
-        {('WHERE ' + dt) if dt else ''}
+          l.*
+        FROM lte_cqi_daily l
+        WHERE l.site_att = ANY(:neighbors)
+        {('AND ' + dt) if dt else ''}
         ORDER BY l.date ASC, l.site_att ASC
         """
         df = pd.read_sql_query(text(sql), engine, params=params)
@@ -755,44 +722,32 @@ def get_neighbor_lte_cqi_daily_calculated(site_list, min_date=None, max_date=Non
     finally:
         engine.dispose()
 
-def get_neighbor_nr_cqi_daily_calculated(site_list, min_date=None, max_date=None, radius_km=5):
-    """Compute NR (5G) unified CQI for neighbors per day, averaged across neighbors.
+def get_neighbor_nr_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5):
+    """Compute NR (5G) unified CQI for neighbors per day using row-based formulas.
 
-    Returns: columns [time, nr_cqi]
+    Input is a center site name; neighbors are derived via get_neighbor_sites(). The center
+    site is excluded. Returns columns [time, nr_cqi].
     """
+    try:
+        neighbors = get_neighbor_sites(site, radius_km=radius_km)
+    except Exception:
+        neighbors = []
+    if not neighbors:
+        return pd.DataFrame(columns=["time", "nr_cqi"])
+
     engine = create_connection()
     if engine is None:
         return None
-    if isinstance(site_list, str):
-        site_list = [site_list]
-    if not site_list:
-        return pd.DataFrame(columns=["time", "nr_cqi"])
     try:
-        radius_meters = radius_km * 1000
-        params = {"sites": site_list, "radius_meters": radius_meters}
+        params = {"neighbors": neighbors}
         dt = _date_filter_params(min_date, max_date, 'n', params)
-        sql = _neighbor_base_cte() + f"""
+        sql = f"""
         SELECT
           n.date AS time,
-          n.site_att,
-          n.acc_mn, n.acc_sn, n.endc_ret_tot, n.ret_mn, n.thp_mn, n.thp_sn,
-          n.e5g_acc_rrc_num_n, n.e5g_s1_sr_num_n, n.e5g_nsa_acc_erab_sr_4gendc_num_n,
-          n.e5g_acc_rrc_den_n, n.e5g_s1_sr_den_n, n.e5g_nsa_acc_erab_sr_4gendc_den_n,
-          n.n5g_acc_rrc_num_n, n.n5g_s1_sr_num_n, n.n5g_nsa_acc_erab_sr_4gendc_num_n,
-          n.n5g_acc_rrc_den_n, n.n5g_s1_sr_den_n, n.n5g_nsa_acc_erab_sr_4gendc_den_n,
-          n.e5g_nsa_ret_erab_drop_4gendc_n, n.e5g_nsa_ret_erab_att_4gendc_n,
-          n.e5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n, n.e5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n,
-          n.n5g_nsa_ret_erab_drop_4gendc_n, n.n5g_nsa_ret_erab_att_4gendc_n,
-          n.n5g_nsa_ret_erab_drop_5gendc_4g5gleg_num_n, n.n5g_nsa_ret_erab_drop_5gendc_4g5gleg_den_n,
-          n.e5g_nsa_thp_mn_num, n.e5g_nsa_thp_mn_den,
-          n.n5g_nsa_thp_mn_num, n.n5g_nsa_thp_mn_den,
-          n.e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n, n.e5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n,
-          n.n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_num_n, n.n5g_nsa_thpt_mac_dl_avg_mbps_5gendc_5gleg_denom_n,
-          n.traffic_4gleg_gb, n.e5g_nsa_traffic_pdcp_gb_5gendc_4glegn, n.n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
-          n.traffic_5gleg_gb, n.e5g_nsa_traffic_pdcp_gb_5gendc_5gleg, n.n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
-        FROM neighbor_sites ns
-        JOIN nr_cqi_daily n ON n.site_att = ns.att_name
-        {('WHERE ' + dt) if dt else ''}
+          n.*
+        FROM nr_cqi_daily n
+        WHERE n.site_att = ANY(:neighbors)
+        {('AND ' + dt) if dt else ''}
         ORDER BY n.date ASC, n.site_att ASC
         """
         df = pd.read_sql_query(text(sql), engine, params=params)
@@ -807,22 +762,26 @@ def get_neighbor_nr_cqi_daily_calculated(site_list, min_date=None, max_date=None
     finally:
         engine.dispose()
 
-def get_neighbor_cqi_daily_calculated(site_list, min_date=None, max_date=None, technology=None, radius_km=5):
+def get_neighbor_cqi_daily_calculated(site, min_date=None, max_date=None, technology=None, radius_km=5):
     """Neighbor version of calculated CQI.
+
+    Accepts a center site name (str) or list of centers. Internally, the per-technology
+    functions will build the neighbor set using geospatial criteria and compute CQI
+    from detailed counters (via row-based functions), excluding the input center site(s).
 
     - If technology in ('3G','4G','5G'), return [time, <tech>_cqi]
     - If technology is None, merge three techs on time: [time, lte_cqi, nr_cqi, umts_cqi]
     """
     if technology == '3G':
-        return get_neighbor_umts_cqi_daily_calculated(site_list, min_date=min_date, max_date=max_date, radius_km=radius_km)
+        return get_neighbor_umts_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km)
     if technology == '4G':
-        return get_neighbor_lte_cqi_daily_calculated(site_list, min_date=min_date, max_date=max_date, radius_km=radius_km)
+        return get_neighbor_lte_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km)
     if technology == '5G':
-        return get_neighbor_nr_cqi_daily_calculated(site_list, min_date=min_date, max_date=max_date, radius_km=radius_km)
+        return get_neighbor_nr_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km)
 
-    df3 = get_neighbor_umts_cqi_daily_calculated(site_list, min_date=min_date, max_date=max_date, radius_km=radius_km)
-    df4 = get_neighbor_lte_cqi_daily_calculated(site_list, min_date=min_date, max_date=max_date, radius_km=radius_km)
-    df5 = get_neighbor_nr_cqi_daily_calculated(site_list, min_date=min_date, max_date=max_date, radius_km=radius_km)
+    df3 = get_neighbor_umts_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km)
+    df4 = get_neighbor_lte_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km)
+    df5 = get_neighbor_nr_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km)
 
     if df3 is None and df4 is None and df5 is None:
         return None

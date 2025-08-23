@@ -195,7 +195,7 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_cqi':
-        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
+        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0

@@ -419,7 +419,7 @@ def get_neighbors_cqi(
     # Use calculated neighbor CQI dispatcher (consistent with site-level behavior)
     if technology in ('3G', '4G', '5G'):
         df = get_neighbor_cqi_daily_calculated(
-            site_list=site_att,
+            site=site_att,
             min_date=str(from_date) if from_date else None,
             max_date=str(to_date) if to_date else None,
             technology=technology,
@@ -428,7 +428,7 @@ def get_neighbors_cqi(
     else:
         # No technology specified: return merged calculated CQIs (3G+4G+5G)
         df = get_neighbor_cqi_daily_calculated(
-            site_list=site_att,
+            site=site_att,
             min_date=str(from_date) if from_date else None,
             max_date=str(to_date) if to_date else None,
             technology=None,
