@@ -205,56 +205,27 @@ def get_neighbor_cqi_daily(site_list, min_date=None, max_date=None, technology=N
     finally:
         engine.dispose()
 
-def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technology=None, radius_km=5, vendor=None):
+def get_neighbor_traffic_data(site, min_date=None, max_date=None, technology=None, radius_km=5, vendor=None):
     """Get traffic data for neighbor sites within radius using direct SQL, aggregated daily across neighbors.
 
     Adds aggregated columns:
       - ps_gb_uldl (GB): total PS traffic for 3G/4G
       - traffic_dlul_tb (TB): total PDCP traffic for 5G (converted from GB)
     """
+    try:
+        neighbors = get_neighbor_sites(site, radius_km=radius_km)
+    except Exception:
+        neighbors = []
+    if not neighbors:
+        return pd.DataFrame()
+
     engine = create_connection()
     if engine is None:
         return None
     
-    if isinstance(site_list, str):
-        site_list = [site_list]
-    
-    if not site_list:
-        print("No sites provided")
-        return pd.DataFrame()
-    
     try:
-        radius_meters = radius_km * 1000
-
-        # Build base CTEs using expressions that match the GiST geography index
-        base_cte = """
-        WITH center_sites AS (
-            SELECT att_name, longitude, latitude
-            FROM public.master_node_total
-            WHERE att_name = ANY(:sites)
-              AND latitude IS NOT NULL
-              AND longitude IS NOT NULL
-        ),
-        neighbor_sites AS (
-            SELECT DISTINCT m.att_name
-            FROM public.master_node_total m
-            JOIN center_sites c ON TRUE
-            WHERE m.att_name IS NOT NULL
-              AND m.latitude IS NOT NULL
-              AND m.longitude IS NOT NULL
-              AND m.att_name <> c.att_name
-              AND NOT (m.att_name = ANY(:sites))
-              AND ST_DWithin(
-                    ST_SetSRID(ST_MakePoint(c.longitude, c.latitude), 4326)::geography,
-                    ST_SetSRID(ST_MakePoint(m.longitude, m.latitude), 4326)::geography,
-                    :radius_meters
-              )
-        )
-        """
-
         params: dict = {
-            'sites': site_list,
-            'radius_meters': radius_meters,
+            'neighbors': neighbors,
         }
 
         # Optional vendor shortcuts
@@ -277,7 +248,7 @@ def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technolog
             if technology == '3G':
                 where_vendor = f" AND u.{vendor_prefix}3g_traffic_d_user_ps_gb IS NOT NULL" if vendor_prefix else ""
                 dt = date_filter('u')
-                neighbor_traffic_sql = base_cte + f"""
+                neighbor_traffic_sql = f"""
                 SELECT u.date AS time,
                        AVG(CAST(u.h3g_traffic_d_user_ps_gb AS DOUBLE PRECISION)) AS h3g_traffic_d_user_ps_gb,
                        AVG(CAST(u.e3g_traffic_d_user_ps_gb AS DOUBLE PRECISION)) AS e3g_traffic_d_user_ps_gb,
@@ -290,9 +261,9 @@ def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technolog
                        NULL::DOUBLE PRECISION AS n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
                        NULL::DOUBLE PRECISION AS e5g_nsa_traffic_pdcp_gb_5gendc_5gleg,
                        NULL::DOUBLE PRECISION AS n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
-                FROM neighbor_sites ns
-                JOIN umts_cqi_daily u ON u.site_att = ns.att_name
-                {('WHERE ' + dt) if dt else ''}
+                FROM umts_cqi_daily u
+                WHERE u.site_att = ANY(:neighbors)
+                {('AND ' + dt) if dt else ''}
                 {where_vendor}
                 GROUP BY u.date
                 ORDER BY u.date ASC
@@ -300,7 +271,7 @@ def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technolog
             elif technology == '4G':
                 where_vendor = f" AND l.{vendor_prefix}4g_traffic_d_user_ps_gb IS NOT NULL" if vendor_prefix else ""
                 dt = date_filter('l')
-                neighbor_traffic_sql = base_cte + f"""
+                neighbor_traffic_sql = f"""
                 SELECT l.date AS time,
                        NULL::DOUBLE PRECISION AS h3g_traffic_d_user_ps_gb,
                        NULL::DOUBLE PRECISION AS e3g_traffic_d_user_ps_gb,
@@ -313,16 +284,16 @@ def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technolog
                        NULL::DOUBLE PRECISION AS n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
                        NULL::DOUBLE PRECISION AS e5g_nsa_traffic_pdcp_gb_5gendc_5gleg,
                        NULL::DOUBLE PRECISION AS n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
-                FROM neighbor_sites ns
-                JOIN lte_cqi_daily l ON l.site_att = ns.att_name
-                {('WHERE ' + dt) if dt else ''}
+                FROM lte_cqi_daily l
+                WHERE l.site_att = ANY(:neighbors)
+                {('AND ' + dt) if dt else ''}
                 {where_vendor}
                 GROUP BY l.date
                 ORDER BY l.date ASC
                 """
             else:  # 5G
                 dt = date_filter('n')
-                neighbor_traffic_sql = base_cte + f"""
+                neighbor_traffic_sql = f"""
                 SELECT n.date AS time,
                        NULL::DOUBLE PRECISION AS h3g_traffic_d_user_ps_gb,
                        NULL::DOUBLE PRECISION AS e3g_traffic_d_user_ps_gb,
@@ -335,9 +306,9 @@ def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technolog
                        AVG(CAST(n.n5g_nsa_traffic_pdcp_gb_5gendc_4glegn AS DOUBLE PRECISION)) AS n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
                        AVG(CAST(n.e5g_nsa_traffic_pdcp_gb_5gendc_5gleg AS DOUBLE PRECISION)) AS e5g_nsa_traffic_pdcp_gb_5gendc_5gleg,
                        AVG(CAST(n.n5g_nsa_traffic_pdcp_gb_5gendc_5gleg AS DOUBLE PRECISION)) AS n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
-                FROM neighbor_sites ns
-                JOIN nr_cqi_daily n ON n.site_att = ns.att_name
-                {('WHERE ' + dt) if dt else ''}
+                FROM nr_cqi_daily n
+                WHERE n.site_att = ANY(:neighbors)
+                {('AND ' + dt) if dt else ''}
                 GROUP BY n.date
                 ORDER BY n.date ASC
                 """
@@ -348,7 +319,7 @@ def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technolog
             dt_u = date_filter('u')
             dt_l = date_filter('l')
             dt_n = date_filter('n')
-            neighbor_traffic_sql = base_cte + f"""
+            neighbor_traffic_sql = f"""
             SELECT time,
                    AVG(h3g_traffic_d_user_ps_gb) AS h3g_traffic_d_user_ps_gb,
                    AVG(e3g_traffic_d_user_ps_gb) AS e3g_traffic_d_user_ps_gb,
@@ -382,9 +353,9 @@ def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technolog
                      NULL::DOUBLE PRECISION AS n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
                      NULL::DOUBLE PRECISION AS e5g_nsa_traffic_pdcp_gb_5gendc_5gleg,
                      NULL::DOUBLE PRECISION AS n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
-              FROM neighbor_sites ns
-              JOIN umts_cqi_daily u ON u.site_att = ns.att_name
-              {('WHERE ' + dt_u) if dt_u else ''}
+              FROM umts_cqi_daily u
+              WHERE u.site_att = ANY(:neighbors)
+              {('AND ' + dt_u) if dt_u else ''}
 
               UNION ALL
 
@@ -400,9 +371,9 @@ def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technolog
                      NULL::DOUBLE PRECISION AS n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
                      NULL::DOUBLE PRECISION AS e5g_nsa_traffic_pdcp_gb_5gendc_5gleg,
                      NULL::DOUBLE PRECISION AS n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
-              FROM neighbor_sites ns
-              JOIN lte_cqi_daily l ON l.site_att = ns.att_name
-              {('WHERE ' + dt_l) if dt_l else ''}
+              FROM lte_cqi_daily l
+              WHERE l.site_att = ANY(:neighbors)
+              {('AND ' + dt_l) if dt_l else ''}
 
               UNION ALL
 
@@ -418,17 +389,16 @@ def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technolog
                      CAST(n.n5g_nsa_traffic_pdcp_gb_5gendc_4glegn AS DOUBLE PRECISION) AS n5g_nsa_traffic_pdcp_gb_5gendc_4glegn,
                      CAST(n.e5g_nsa_traffic_pdcp_gb_5gendc_5gleg AS DOUBLE PRECISION) AS e5g_nsa_traffic_pdcp_gb_5gendc_5gleg,
                      CAST(n.n5g_nsa_traffic_pdcp_gb_5gendc_5gleg AS DOUBLE PRECISION) AS n5g_nsa_traffic_pdcp_gb_5gendc_5gleg
-              FROM neighbor_sites ns
-              JOIN nr_cqi_daily n ON n.site_att = ns.att_name
-              {('WHERE ' + dt_n) if dt_n else ''}
+              FROM nr_cqi_daily n
+              WHERE n.site_att = ANY(:neighbors)
+              {('AND ' + dt_n) if dt_n else ''}
             ) s
             GROUP BY time
             ORDER BY time ASC
             """
 
             result_df = pd.read_sql_query(text(neighbor_traffic_sql), engine, params=params)
-
-        print(f"Retrieved neighbor traffic data for {len(site_list)} center sites: {result_df.shape[0]} records")
+        print(f"Retrieved neighbor traffic data for {len(neighbors)} neighbor sites: {result_df.shape[0]} records")
         return result_df
         
     except Exception as e:
@@ -437,55 +407,26 @@ def get_neighbor_traffic_data(site_list, min_date=None, max_date=None, technolog
     finally:
         engine.dispose()
 
-def get_neighbor_traffic_voice(site_list, min_date=None, max_date=None, technology=None, radius_km=5, vendor=None):
+def get_neighbor_traffic_voice(site, min_date=None, max_date=None, technology=None, radius_km=5, vendor=None):
     """Get voice traffic data for neighbor sites within radius using direct SQL, aggregated daily across neighbors.
 
     Adds aggregated column:
       - traffic_voice: total voice traffic across technologies/vendors.
     """
+    try:
+        neighbors = get_neighbor_sites(site, radius_km=radius_km)
+    except Exception:
+        neighbors = []
+    if not neighbors:
+        return pd.DataFrame()
+
     engine = create_connection()
     if engine is None:
         return None
     
-    if isinstance(site_list, str):
-        site_list = [site_list]
-    
-    if not site_list:
-        print("No sites provided")
-        return pd.DataFrame()
-    
     try:
-        radius_meters = radius_km * 1000
-
-        # Base CTEs aligned with GiST geography index usage
-        base_cte = """
-        WITH center_sites AS (
-            SELECT att_name, longitude, latitude
-            FROM public.master_node_total
-            WHERE att_name = ANY(:sites)
-              AND latitude IS NOT NULL
-              AND longitude IS NOT NULL
-        ),
-        neighbor_sites AS (
-            SELECT DISTINCT m.att_name
-            FROM public.master_node_total m
-            JOIN center_sites c ON TRUE
-            WHERE m.att_name IS NOT NULL
-              AND m.latitude IS NOT NULL
-              AND m.longitude IS NOT NULL
-              AND m.att_name <> c.att_name
-              AND NOT (m.att_name = ANY(:sites))
-              AND ST_DWithin(
-                    ST_SetSRID(ST_MakePoint(c.longitude, c.latitude), 4326)::geography,
-                    ST_SetSRID(ST_MakePoint(m.longitude, m.latitude), 4326)::geography,
-                    :radius_meters
-              )
-        )
-        """
-
         params: dict = {
-            'sites': site_list,
-            'radius_meters': radius_meters,
+            'neighbors': neighbors,
         }
 
         # Optional vendor mapping
@@ -508,7 +449,7 @@ def get_neighbor_traffic_voice(site_list, min_date=None, max_date=None, technolo
             if technology == '3G':
                 where_vendor = f" AND u.{vendor_prefix}3g_traffic_v_user_cs IS NOT NULL" if vendor_prefix else ""
                 dt = date_filter('u')
-                sql = base_cte + f"""
+                sql = f"""
                 SELECT u.date AS time,
                        NULL::DOUBLE PRECISION AS user_traffic_volte_e,
                        NULL::DOUBLE PRECISION AS user_traffic_volte_h,
@@ -517,9 +458,9 @@ def get_neighbor_traffic_voice(site_list, min_date=None, max_date=None, technolo
                        AVG(CAST(u.h3g_traffic_v_user_cs AS DOUBLE PRECISION)) AS h3g_traffic_v_user_cs,
                        AVG(CAST(u.e3g_traffic_v_user_cs AS DOUBLE PRECISION)) AS e3g_traffic_v_user_cs,
                        AVG(CAST(u.n3g_traffic_v_user_cs AS DOUBLE PRECISION)) AS n3g_traffic_v_user_cs
-                FROM neighbor_sites ns
-                JOIN umts_cqi_daily u ON u.site_att = ns.att_name
-                {('WHERE ' + dt) if dt else ''}
+                FROM umts_cqi_daily u
+                WHERE u.site_att = ANY(:neighbors)
+                {('AND ' + dt) if dt else ''}
                 {where_vendor}
                 GROUP BY u.date
                 ORDER BY u.date ASC
@@ -527,7 +468,7 @@ def get_neighbor_traffic_voice(site_list, min_date=None, max_date=None, technolo
             else:  # 4G
                 where_vendor = f" AND v.user_traffic_volte_{vendor_prefix} IS NOT NULL" if vendor_prefix else ""
                 dt = date_filter('v')
-                sql = base_cte + f"""
+                sql = f"""
                 SELECT v.date AS time,
                        AVG(CAST(v.user_traffic_volte_e AS DOUBLE PRECISION)) AS user_traffic_volte_e,
                        AVG(CAST(v.user_traffic_volte_h AS DOUBLE PRECISION)) AS user_traffic_volte_h,
@@ -536,9 +477,9 @@ def get_neighbor_traffic_voice(site_list, min_date=None, max_date=None, technolo
                        NULL::DOUBLE PRECISION AS h3g_traffic_v_user_cs,
                        NULL::DOUBLE PRECISION AS e3g_traffic_v_user_cs,
                        NULL::DOUBLE PRECISION AS n3g_traffic_v_user_cs
-                FROM neighbor_sites ns
-                JOIN volte_cqi_vendor_daily v ON v.site_att = ns.att_name
-                {('WHERE ' + dt) if dt else ''}
+                FROM volte_cqi_vendor_daily v
+                WHERE v.site_att = ANY(:neighbors)
+                {('AND ' + dt) if dt else ''}
                 {where_vendor}
                 GROUP BY v.date
                 ORDER BY v.date ASC
@@ -549,7 +490,7 @@ def get_neighbor_traffic_voice(site_list, min_date=None, max_date=None, technolo
             # ALL technologies: UNION ALL per-table selects with date pushdown
             dt_u = date_filter('u')
             dt_v = date_filter('v')
-            sql = base_cte + f"""
+            sql = f"""
             SELECT time,
                    AVG(user_traffic_volte_e) AS user_traffic_volte_e,
                    AVG(user_traffic_volte_h) AS user_traffic_volte_h,
@@ -571,9 +512,9 @@ def get_neighbor_traffic_voice(site_list, min_date=None, max_date=None, technolo
                        CAST(u.h3g_traffic_v_user_cs AS DOUBLE PRECISION) AS h3g_traffic_v_user_cs,
                        CAST(u.e3g_traffic_v_user_cs AS DOUBLE PRECISION) AS e3g_traffic_v_user_cs,
                        CAST(u.n3g_traffic_v_user_cs AS DOUBLE PRECISION) AS n3g_traffic_v_user_cs
-                FROM neighbor_sites ns
-                JOIN umts_cqi_daily u ON u.site_att = ns.att_name
-                {('WHERE ' + dt_u) if dt_u else ''}
+                FROM umts_cqi_daily u
+                WHERE u.site_att = ANY(:neighbors)
+                {('AND ' + dt_u) if dt_u else ''}
 
                 UNION ALL
 
@@ -585,17 +526,16 @@ def get_neighbor_traffic_voice(site_list, min_date=None, max_date=None, technolo
                        NULL::DOUBLE PRECISION AS h3g_traffic_v_user_cs,
                        NULL::DOUBLE PRECISION AS e3g_traffic_v_user_cs,
                        NULL::DOUBLE PRECISION AS n3g_traffic_v_user_cs
-                FROM neighbor_sites ns
-                JOIN volte_cqi_vendor_daily v ON v.site_att = ns.att_name
-                {('WHERE ' + dt_v) if dt_v else ''}
+                FROM volte_cqi_vendor_daily v
+                WHERE v.site_att = ANY(:neighbors)
+                {('AND ' + dt_v) if dt_v else ''}
             ) s
             GROUP BY time
             ORDER BY time ASC
             """
 
             result_df = pd.read_sql_query(text(sql), engine, params=params)
-
-        print(f"Retrieved neighbor voice traffic data for {len(site_list)} center sites: {result_df.shape[0]} records")
+        print(f"Retrieved neighbor voice traffic data for {len(neighbors)} neighbor sites: {result_df.shape[0]} records")
         return result_df
         
     except Exception as e:

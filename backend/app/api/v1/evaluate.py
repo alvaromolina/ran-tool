@@ -201,13 +201,13 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_data':
-        df = _call_with_timeout(get_neighbor_traffic_data, 10.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
+        df = _call_with_timeout(get_neighbor_traffic_data, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
         val = _range_mean(df, preferred_cols=[])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_voice':
-        df = _call_with_timeout(get_neighbor_traffic_voice, 10.0, site_list=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
+        df = _call_with_timeout(get_neighbor_traffic_voice, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
         val = _range_mean(df, preferred_cols=[])
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0

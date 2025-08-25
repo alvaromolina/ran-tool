@@ -453,7 +453,7 @@ def get_neighbors_traffic(
     offset: int = Query(0, ge=0),
 ):
     df = get_neighbor_traffic_data(
-        site_list=site_att,
+        site=site_att,
         min_date=str(from_date) if from_date else None,
         max_date=str(to_date) if to_date else None,
         technology=technology,
@@ -479,7 +479,7 @@ def get_neighbors_voice(
     offset: int = Query(0, ge=0),
 ):
     df = get_neighbor_traffic_voice(
-        site_list=site_att,
+        site=site_att,
         min_date=str(from_date) if from_date else None,
         max_date=str(to_date) if to_date else None,
         technology=technology,

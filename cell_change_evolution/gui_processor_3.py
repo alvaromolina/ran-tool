@@ -390,7 +390,7 @@ def server(input, output, session):
         technology_filter = None if technology_traffic == 'ALL' else technology_traffic
         
         neighbor_traffic_data = get_neighbor_traffic_data(
-            site_list=[site_att],
+            site=site_att,
             min_date=min_date, 
             max_date=max_date, 
             technology=technology_filter,
@@ -446,7 +446,7 @@ def server(input, output, session):
         technology_filter = None if technology_voice == 'ALL' else technology_voice
         
         neighbor_voice_data = get_neighbor_traffic_voice(
-            site_list=[site_att],
+            site=site_att,
             min_date=min_date, 
             max_date=max_date, 
             technology=technology_filter,
