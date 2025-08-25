@@ -612,7 +612,8 @@ def get_neighbor_umts_cqi_daily_calculated(site, min_date=None, max_date=None, r
         """
         df = pd.read_sql_query(text(sql), engine, params=params)
         if df is None or df.empty:
-            return df
+            # Ensure expected columns even when no rows
+            return pd.DataFrame(columns=["time", "umts_cqi"]) 
         df['umts_cqi'] = df.apply(calculate_unified_cqi_umts_row, axis=1)
         out = df.groupby('time', as_index=False)['umts_cqi'].mean()
         return sanitize_df(out)
@@ -652,7 +653,8 @@ def get_neighbor_lte_cqi_daily_calculated(site, min_date=None, max_date=None, ra
         """
         df = pd.read_sql_query(text(sql), engine, params=params)
         if df is None or df.empty:
-            return df
+            # Ensure expected columns even when no rows
+            return pd.DataFrame(columns=["time", "lte_cqi"]) 
         df['lte_cqi'] = df.apply(calculate_unified_cqi_lte_row, axis=1)
         out = df.groupby('time', as_index=False)['lte_cqi'].mean()
         return sanitize_df(out)
@@ -692,7 +694,8 @@ def get_neighbor_nr_cqi_daily_calculated(site, min_date=None, max_date=None, rad
         """
         df = pd.read_sql_query(text(sql), engine, params=params)
         if df is None or df.empty:
-            return df
+            # Ensure expected columns even when no rows
+            return pd.DataFrame(columns=["time", "nr_cqi"]) 
         df['nr_cqi'] = df.apply(calculate_unified_cqi_nr_row, axis=1)
         out = df.groupby('time', as_index=False)['nr_cqi'].mean()
         return sanitize_df(out)

@@ -62,6 +62,17 @@ function App() {
   const siteInputRef = useRef<HTMLInputElement | null>(null)
   const evalDateInputRef = useRef<HTMLInputElement | null>(null)
 
+  // Ensure neighbor site list is unique by site name
+  function dedupeNbSites(rows: Array<{ site_name: string; region: string|null; province: string|null; municipality: string|null; vendor: string|null }>): typeof rows {
+    const seen = new Set<string>()
+    const out: typeof rows = []
+    for (const r of rows || []) {
+      const k = r?.site_name ?? ''
+      if (k && !seen.has(k)) { seen.add(k); out.push(r) }
+    }
+    return out
+  }
+
   // A valid evaluation date must be explicitly chosen by the user
   const isValidEvalDate = useMemo(() => /^\d{4}-\d{2}-\d{2}$/.test(evalDate), [evalDate])
 
@@ -102,59 +113,397 @@ function App() {
     if (!outputsRef.current) return
     try {
       setDownloadingOutputsPdf(true)
-      const element = outputsRef.current
-      // Add class to tweak styles for export (hide map, force light banner styles)
-      element.classList.add('exporting-pdf')
+      // Derive metadata without re-fetching data
+      const siteId = (selectedSite || site || 'SITE').trim()
+      const inputDate = (evalResult?.input_date || evalDate || '').trim()
+      // Compute last date from currently loaded datasets and ranges
+      function rowsMaxDate(rows: any[]): number | null {
+        if (!Array.isArray(rows) || rows.length === 0) return null
+        const dateKeys = ['date','time','day','timestamp']
+        let best: number | null = null
+        for (const r of rows) {
+          for (const k of dateKeys) {
+            const v = (r as any)?.[k]
+            if (v != null) {
+              const t = typeof v === 'string' ? Date.parse(v) : (typeof v === 'number' ? v : NaN)
+              if (!Number.isNaN(t)) best = best == null ? t : Math.max(best, t)
+              break
+            }
+          }
+        }
+        return best
+      }
+      const candidatesNum: number[] = []
+      const pushIf = (n: number | null) => { if (n != null) candidatesNum.push(n) }
+      pushIf(rowsMaxDate(siteCqi));
+      pushIf(rowsMaxDate(siteTraffic));
+      pushIf(rowsMaxDate(siteVoice));
+      pushIf(rowsMaxDate(nbCqi));
+      pushIf(rowsMaxDate(nbTraffic));
+      pushIf(rowsMaxDate(nbVoice));
+      const dataMaxStr = candidatesNum.length ? new Date(Math.max(...candidatesNum)).toISOString().slice(0,10) : undefined
+      const ranges = (evalResult?.options?.ranges || {}) as any
+      const maxCandidate = [dataMaxStr, ranges?.last?.to, ranges?.after?.to, ranges?.before?.to]
+        .filter(Boolean).sort().slice(-1)[0] as string | undefined
+      const lastDate = maxCandidate || inputDate || ''
 
-      // Try to align a page break so that Plot05 starts at a new PDF page.
-      // We approximate canvas dimensions based on html2canvas scale and element width
+      // Helper to capture a specific element via an offscreen clone
       const scale = 2
-      const plot05El = element.querySelector('#plot05') as HTMLElement | null
-      if (plot05El) {
-        const elRect = element.getBoundingClientRect()
-        const p5Rect = plot05El.getBoundingClientRect()
-        const yBreakCss = Math.max(0, p5Rect.top - elRect.top) // px within element
-        const canvasWidth = Math.round(element.clientWidth * scale)
-        const pdf = new jsPDF('p', 'pt', 'a4')
-        const pageWidthPt = pdf.internal.pageSize.getWidth()
-        const pageHeightPt = pdf.internal.pageSize.getHeight()
-        const imgWidthPt = pageWidthPt // we draw image to full width
-        const ratio = imgWidthPt / canvasWidth // pt per canvas px
-        const pageHeightCanvasPx = pageHeightPt / ratio
-        const yBreakCanvasPx = yBreakCss * scale
-        const remainder = yBreakCanvasPx % pageHeightCanvasPx
-        const padCanvasPx = remainder === 0 ? 0 : (pageHeightCanvasPx - remainder)
-        const padCssPx = padCanvasPx / scale
-        if (padCssPx > 0 && Number.isFinite(padCssPx)) {
-          element.style.paddingTop = `${padCssPx}px`
+      async function captureElement(el: HTMLElement, extraCss?: string): Promise<HTMLCanvasElement> {
+        const off = document.createElement('div')
+        off.style.position = 'fixed'
+        off.style.left = '-10000px'
+        off.style.top = '0'
+        off.style.width = `${outputsRef.current!.clientWidth}px`
+        off.style.zIndex = '-1'
+        document.body.appendChild(off)
+        const clone = el.cloneNode(true) as HTMLElement
+        clone.classList.add('exporting-pdf')
+        // Optional export-only CSS to normalize fonts/spacing
+        if (extraCss) {
+          const style = document.createElement('style')
+          style.textContent = extraCss
+          off.appendChild(style)
+        }
+        off.appendChild(clone)
+        try {
+          const canvas = await html2canvas(clone, { scale, useCORS: true, allowTaint: true, backgroundColor: '#ffffff' })
+          return canvas
+        } finally {
+          document.body.removeChild(off)
         }
       }
 
-      const canvas = await html2canvas(element, { scale, useCORS: true, allowTaint: true })
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF('p', 'pt', 'a4')
+      // Helper to capture a LIVE element (needed for Leaflet map)
+      async function captureLiveElement(el: HTMLElement, extraCss?: string, customScale?: number): Promise<HTMLCanvasElement> {
+        let style: HTMLStyleElement | null = null
+        try {
+          if (extraCss) {
+            style = document.createElement('style')
+            style.textContent = extraCss
+            document.body.appendChild(style)
+          }
+          // Give the map a short moment to finish tile rendering
+          await new Promise((r) => setTimeout(r, 600))
+          const canvas = await html2canvas(el, { scale: customScale ?? scale, useCORS: true, allowTaint: true, backgroundColor: '#ffffff' })
+          return canvas
+        } finally {
+          if (style) document.body.removeChild(style)
+        }
+      }
+
+      // Prepare PDF landscape
+      const pdf = new jsPDF('l', 'pt', 'a4')
       const pageWidth = pdf.internal.pageSize.getWidth()
       const pageHeight = pdf.internal.pageSize.getHeight()
-      const imgWidth = pageWidth
-      const imgHeight = canvas.height * imgWidth / canvas.width
-      let heightLeft = imgHeight
-      let position = 0
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-      heightLeft -= pageHeight
-      while (heightLeft > 0) {
-        position = -(imgHeight - heightLeft)
-        pdf.addPage()
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-        heightLeft -= pageHeight
+      const margin = 36
+
+      // PAGE 1: Title centered + metadata row + Evaluation table + Neighbor map
+      // Title (use centered alignment for precise centering)
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(20)
+      const title = 'RAN Quality Analysis Report'
+      const titleY = margin + 10
+      pdf.text(title, pageWidth / 2, titleY, { align: 'center' } as any)
+      // Metadata (smaller)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(10)
+      const rowY = titleY + 20
+      pdf.text(`Site: ${siteId}    Input Date: ${inputDate || '—'}    Last Date: ${lastDate || '—'}`,
+        margin, rowY)
+
+      const src = outputsRef.current
+      const evalMetricsEl = src.querySelector('.eval-metrics') as HTMLElement | null
+      const mapBlockEl = src.querySelector('.block-map') as HTMLElement | null
+      // Evaluation header with badge (from on-screen banner)
+      let y = rowY + 20
+      {
+        const overall = (evalResult?.overall || '').toString()
+        const badge = overall.toLowerCase()
+        let fill: [number,number,number] = [229,231,235]
+        let textColor: [number,number,number] = [31,41,55]
+        if (badge.includes('pass')) { fill = [16,185,129]; textColor = [255,255,255] }
+        else if (badge.includes('fail')) { fill = [185,28,28]; textColor = [255,255,255] }
+        else if (badge.includes('restor')) { fill = [37,99,235]; textColor = [255,255,255] }
+        // Line 1: "Evaluation Result"
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(14)
+        pdf.text('Evaluation Result', margin, y)
+        y += 14 // move to next line for badge row
+        // Line 2: badge + info
+        const bh = 18, bw = Math.max(48, pdf.getTextWidth(overall || '—') + 14)
+        const by = y + 2
+        const bx = margin
+        pdf.setFillColor(fill[0], fill[1], fill[2])
+        pdf.roundedRect(bx, by - 12, bw, bh, 8, 8, 'F')
+        pdf.setTextColor(textColor[0], textColor[1], textColor[2])
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11)
+        pdf.text(overall || '—', bx + 7, by)
+        pdf.setTextColor(0,0,0)
+        // Right of badge: date and threshold
+        const infoX = bx + bw + 12
+        const thrStr = isFinite(evalThreshold as number) ? `${Math.round((evalThreshold as number) * 100)}%` : '—'
+        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(11)
+        pdf.text(`Date: ${inputDate || '—'}    Threshold: ${thrStr}`, infoX, by)
+        // Move Y down for tables (extra padding to avoid overlap)
+        y = by + 28
       }
-      pdf.save('report.pdf')
+      if (evalMetricsEl && mapBlockEl) {
+        // Programmatic table rendering for two columns (Site, Neighbors)
+        function extract(col: HTMLElement) {
+          // Use compact, fixed headers
+          const headers = ['Name','Before','After','Last','A/B','L/B','Class','Verdict']
+          const rows: string[][] = []
+          const rEls = Array.from(col.querySelectorAll('.tbody .trow')) as HTMLElement[]
+          for (const r of rEls) {
+            const cells = Array.from(r.children) as HTMLElement[]
+            // Normalize cell text and remove decorative quote-only columns sometimes present around A/B and L/B
+            let vals = cells
+              .map(c => (c.textContent || '').replace(/\s+/g, ' ').trim())
+              .filter(t => t.length > 0 && !/^['"“”]$/.test(t))
+            // Ensure exactly 8 columns by trimming extras from the right if needed (keep main metrics)
+            if (vals.length > headers.length) {
+              // Prefer removing stray characters left after filter
+              vals = vals.filter(t => !/^['"“”]$/.test(t))
+            }
+            if (vals.length > headers.length) vals = vals.slice(0, headers.length)
+            rows.push(vals)
+          }
+          return { headers, rows }
+        }
+        const cols = Array.from(evalMetricsEl.querySelectorAll('.eval-col')) as HTMLElement[]
+        const left = cols[0] ? extract(cols[0]) : { headers: [], rows: [] }
+        const right = cols[1] ? extract(cols[1]) : { headers: [], rows: [] }
+
+        // Layout constants
+        const totalW = pageWidth - margin * 2
+        const gap = 18
+        const colW = (totalW - gap) / 2
+        const colX = [margin, margin + colW + gap]
+        const headerH = 16
+        let rowH = 14
+        let fontHeader = 10
+        let fontBody = 9
+
+        // Estimate height and adapt to available space with the map
+        const rowsCount = Math.max(left.rows.length, right.rows.length)
+        const minMapH = 200 // pt target
+        function neededTableH(rh: number, hh: number) { return hh + rowsCount * rh }
+        let tableH = neededTableH(rowH, headerH)
+        let available = pageHeight - y - margin - (minMapH + 8)
+        while (tableH > available && rowH > 10) {
+          rowH -= 1; fontBody -= 0.5; fontHeader -= 0.5; tableH = neededTableH(rowH, headerH)
+        }
+
+        // Column inner widths matching on-screen look
+        const cw = [120, 60, 60, 60, 72, 72, 68, 64]
+        const totalCw = cw.reduce((a, b) => a + b, 0)
+        const scaleX = Math.min(1, colW / totalCw)
+
+        // Subheaders above each table: "Site" and "Neighbors"
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(13)
+        pdf.text('Site', colX[0], y)
+        pdf.text('Neighbors', colX[1], y)
+        // Push table headers below subheaders to avoid overlap
+        y += 14
+
+        function drawTable(x: number, data: { headers: string[]; rows: string[][] }) {
+          // Header
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(fontHeader)
+          let tx = x
+          const yHeader = y
+          for (let i = 0; i < cw.length; i++) {
+            const w = cw[i] * scaleX;
+            const text = data.headers[i] || ''
+            pdf.text(text, tx + 2, yHeader)
+            tx += w
+          }
+          // underline header
+          pdf.setDrawColor(200,200,200)
+          pdf.setLineWidth(0.5)
+          pdf.line(x, y + 4, x + (cw.reduce((a,b)=>a+b,0) * scaleX), y + 4)
+          // Rows
+          pdf.setFont('helvetica', 'normal'); pdf.setFontSize(fontBody)
+          let yy = y + headerH
+          for (const r of data.rows) {
+            let xx = x
+            for (let i = 0; i < cw.length; i++) {
+              const w = cw[i] * scaleX
+              let text = r[i] || ''
+              if (i === cw.length - 1) {
+                // verdict badge styling
+                const verdict = text.toLowerCase()
+                let fill: [number,number,number] = [230,230,230]
+                let color: [number,number,number] = [20,20,20]
+                if (verdict.includes('pass')) { fill = [209, 250, 229]; color = [6, 78, 59] }
+                else if (verdict.includes('fail')) { fill = [254, 226, 226]; color = [127, 29, 29] }
+                else if (verdict.includes('restor')) { fill = [219, 234, 254]; color = [30, 64, 175] }
+                pdf.setFillColor(fill[0], fill[1], fill[2])
+                pdf.roundedRect(xx + 2, yy - rowH + 4, Math.min(w - 4, 48 * scaleX), rowH - 6, 6, 6, 'F')
+                pdf.setTextColor(color[0], color[1], color[2])
+                pdf.text(text, xx + 6, yy - 4)
+                pdf.setTextColor(0,0,0)
+              } else {
+                // right align numeric columns 1..6
+                const isNum = i > 0 && i < cw.length - 2
+                if (isNum) {
+                  const tw = pdf.getTextWidth(text)
+                  pdf.text(text, xx + w - 2 - tw, yy - 4)
+                } else {
+                  pdf.text(text, xx + 2, yy - 4)
+                }
+              }
+              xx += w
+            }
+            yy += rowH
+          }
+        }
+
+        // Draw both tables
+        drawTable(colX[0], left)
+        drawTable(colX[1], right)
+
+        // Compute actual bottom of tables to place the map
+        const tableBottom = y + headerH + rowsCount * rowH
+        y = tableBottom + 8
+
+        // Capture and draw the map scaled to remaining height
+        // Capture the Leaflet container itself so tile and overlay transforms share the same origin
+        const liveMapEl = (mapBlockEl.querySelector('.leaflet-container') || mapBlockEl.querySelector('.map-wrap') || mapBlockEl) as HTMLElement
+        // Ask Leaflet to settle layout so transforms are up-to-date
+        try {
+          if (mapRef.current) {
+            mapRef.current.invalidateSize(false)
+            // no-op pan to flush transform state without moving
+            // @ts-ignore
+            mapRef.current.panBy([0, 0], { animate: false })
+            // re-set view at current center/zoom to ensure pane offsets are consistent
+            try {
+              const center = mapRef.current.getCenter()
+              const zoom = mapRef.current.getZoom()
+              mapRef.current.setView(center, zoom, { animate: false })
+            } catch {}
+          }
+        } catch { /* ignore */ }
+        // Give Leaflet a moment to reflow before snapshot
+        await new Promise((r) => setTimeout(r, 700))
+        const mapCanvas = await captureLiveElement(
+          liveMapEl,
+          '.block-title{display:none!important;}.btn-grid{display:none!important;}.button-show{display:none!important;}' +
+          '.map-wrap{padding:0!important;margin:0!important;}' +
+          '.leaflet-zoom-animated{transition:none!important;}',
+          (window as any).devicePixelRatio || 1
+        )
+        const mapW = pageWidth - margin * 2
+        // Title for the map section
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(13)
+        pdf.text('Neighbors', margin, y)
+        y += 10
+        let mapH = mapCanvas.height * mapW / mapCanvas.width
+        const remaining = pageHeight - margin - y
+        if (mapH > remaining) mapH = remaining
+        pdf.addImage(mapCanvas.toDataURL('image/png'), 'PNG', margin, y, mapW, mapH)
+        y += mapH
+      } else if (src) {
+        // Fallback: capture the whole outputs if specific sections not found
+        const canvas = await captureElement(src)
+        const imgW = pageWidth - margin * 2
+        const imgH = canvas.height * imgW / canvas.width
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, y, imgW, imgH)
+      }
+
+      // PAGE 2: Site KPIs (Plot01–Plot03)
+      const blocks = Array.from(src.querySelectorAll('.output-grid .output-block')) as HTMLElement[]
+      if (blocks.length >= 3) {
+        const siteBlocks = blocks.slice(0, 3)
+        const container2 = document.createElement('div')
+        container2.style.position = 'fixed'
+        container2.style.left = '-10000px'
+        container2.style.top = '0'
+        container2.style.width = `${outputsRef.current!.clientWidth}px`
+        container2.style.zIndex = '-1'
+        document.body.appendChild(container2)
+        siteBlocks.forEach(b => container2.appendChild(b.cloneNode(true)))
+        let canvas2: HTMLCanvasElement | null = null
+        try {
+          // Hide individual block titles for a cleaner page of charts
+          const style = document.createElement('style')
+          style.textContent = '.block-title{display:none!important;}'
+          container2.appendChild(style)
+          canvas2 = await html2canvas(container2, { scale, useCORS: true, allowTaint: true })
+        } finally {
+          document.body.removeChild(container2)
+        }
+        if (canvas2) {
+          pdf.addPage()
+          const maxW = pageWidth - margin * 2
+          const maxH = pageHeight - margin * 2
+          const w0 = maxW
+          const h0 = canvas2.height * w0 / canvas2.width
+          const scaleFit = Math.min(1, maxH / h0)
+          const drawW = w0 * scaleFit
+          const drawH = h0 * scaleFit
+          const x = margin + (maxW - drawW) / 2
+          const y2 = margin + (maxH - drawH) / 2
+          pdf.addImage(canvas2.toDataURL('image/png'), 'PNG', x, y2, drawW, drawH)
+        }
+      }
+
+      // PAGE 3: Neighbor KPIs (Plot05–Plot07)
+      const nbStart = blocks.findIndex(b => b.id === 'plot05')
+      const nbBlocks = nbStart >= 0 ? blocks.slice(nbStart, nbStart + 3) : blocks.slice(-3)
+      if (nbBlocks.length) {
+        const container3 = document.createElement('div')
+        container3.style.position = 'fixed'
+        container3.style.left = '-10000px'
+        container3.style.top = '0'
+        container3.style.width = `${outputsRef.current!.clientWidth}px`
+        container3.style.zIndex = '-1'
+        document.body.appendChild(container3)
+        nbBlocks.forEach(b => container3.appendChild(b.cloneNode(true)))
+        let canvas3: HTMLCanvasElement | null = null
+        try {
+          const style = document.createElement('style')
+          style.textContent = '.block-title{display:none!important;}'
+          container3.appendChild(style)
+          canvas3 = await html2canvas(container3, { scale, useCORS: true, allowTaint: true })
+        } finally {
+          document.body.removeChild(container3)
+        }
+        if (canvas3) {
+          pdf.addPage()
+          const maxW = pageWidth - margin * 2
+          const maxH = pageHeight - margin * 2
+          const w0 = maxW
+          const h0 = canvas3.height * w0 / canvas3.width
+          const scaleFit = Math.min(1, maxH / h0)
+          const drawW = w0 * scaleFit
+          const drawH = h0 * scaleFit
+          const x = margin + (maxW - drawW) / 2
+          const y3 = margin + (maxH - drawH) / 2
+          pdf.addImage(canvas3.toDataURL('image/png'), 'PNG', x, y3, drawW, drawH)
+        }
+      }
+
+      // Footer with generator text and page numbers on every page
+      const total = pdf.getNumberOfPages()
+      for (let i = 1; i <= total; i++) {
+        pdf.setPage(i)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(9)
+        const left = 'Generated with RAN Quality Evaluator v01'
+        const right = `Page ${i} of ${total}`
+        pdf.text(left, margin, pageHeight - 16)
+        const rw = pdf.getTextWidth(right)
+        pdf.text(right, pageWidth - margin - rw, pageHeight - 16)
+      }
+
+      // Save file
+      const sanitize = (s: string) => s.replace(/[^A-Za-z0-9_\-]+/g, '_')
+      const fname = `RAN_Quality_Report_${sanitize(siteId)}_${sanitize(inputDate || 'NA')}_${sanitize(lastDate || 'NA')}.pdf`
+      pdf.save(fname)
     } catch (e) {
       alert(`Failed to generate outputs PDF: ${e}`)
     } finally {
-      // Remove export class to restore UI
-      outputsRef.current?.classList.remove('exporting-pdf')
-      // Remove temporary padding offset if applied
-      if (outputsRef.current) outputsRef.current.style.paddingTop = ''
       setDownloadingOutputsPdf(false)
     }
   }
@@ -293,7 +642,7 @@ function App() {
         setNbSitesError(null)
         const rows = await api.neighborsList(s, { radius_km: radiusKm })
         if (cancelled) return
-        setNbSites(Array.isArray(rows) ? rows : [])
+        setNbSites(Array.isArray(rows) ? dedupeNbSites(rows) : [])
       } catch (e: any) {
         if (!cancelled) setNbSitesError(String(e))
       } finally {
@@ -682,15 +1031,15 @@ function App() {
                 <>
                   <div className="output-block">
                     <div className="block-title">Plot01 – Site CQIs</div>
-                    <SimpleLineChart data={siteCqi} title="CQIs" loading={loadingSite && fetchedSiteOnce} {...common} />
+                    <SimpleLineChart data={siteCqi} title="Site CQIs" loading={loadingSite && fetchedSiteOnce} {...common} />
                   </div>
                   <div className="output-block">
                     <div className="block-title">Plot02 – Site Data Traffic</div>
-                    <SimpleStackedBar data={siteTraffic} title="Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
+                    <SimpleStackedBar data={siteTraffic} title="Site Data Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
                   </div>
                   <div className="output-block">
                     <div className="block-title">Plot03 – Site Voice Traffic</div>
-                    <SimpleStackedBar data={siteVoice} title="Voice Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
+                    <SimpleStackedBar data={siteVoice} title="Site Voice Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
                   </div>
                   <div className="output-block block-map">
                     <div className="block-title">Plot04 – Map</div>
@@ -698,10 +1047,12 @@ function App() {
                       <div className="chart-loading" style={{ height: 360 }} />
                     ) : mapGeo.length > 0 ? (
                       <div className="map-wrap">
-                        <MapContainer ref={mapRef} center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
+                        <MapContainer ref={mapRef} center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }} preferCanvas={true} zoomAnimation={false}>
                           <TileLayer
                             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                            crossOrigin="anonymous"
+                            detectRetina={false}
                           />
                           {/* radius circle for context (render first so it's beneath markers) */}
                           <Circle center={mapCenter} radius={radiusKm * 1000} pathOptions={{ color: '#9aa0a6' }} interactive={false} />

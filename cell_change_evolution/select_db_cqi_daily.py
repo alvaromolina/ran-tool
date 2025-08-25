@@ -256,7 +256,8 @@ def get_nr_cqi_daily_calculated(att_name, min_date=None, max_date=None):
 
         df = pd.read_sql(sql, engine, params=params)
         if df is None or df.empty:
-            return df
+            # Return an empty frame with expected columns to avoid KeyError upstream
+            return sanitize_df(pd.DataFrame(columns=['time', 'site_att', 'nr_cqi']))
 
         df['nr_cqi'] = df.apply(calculate_unified_cqi_nr_row, axis=1)
         out = df[['time', 'site_att', 'nr_cqi']].copy()
@@ -416,7 +417,8 @@ def get_lte_cqi_daily_calculated(att_name, min_date=None, max_date=None):
 
         df = pd.read_sql(sql, engine, params=params)
         if df is None or df.empty:
-            return df
+            # Return an empty frame with expected columns to avoid KeyError upstream
+            return sanitize_df(pd.DataFrame(columns=['time', 'site_att', 'lte_cqi']))
 
         df['lte_cqi'] = df.apply(calculate_unified_cqi_lte_row, axis=1)
         out = df[['time', 'site_att', 'lte_cqi']].copy()
@@ -549,7 +551,8 @@ def get_umts_cqi_daily_calculated(att_name, min_date=None, max_date=None):
 
         df = pd.read_sql(sql, engine, params=params)
         if df is None or df.empty:
-            return df
+            # Return an empty frame with expected columns to avoid KeyError upstream
+            return sanitize_df(pd.DataFrame(columns=['time', 'site_att', 'umts_cqi']))
 
         # Calculate per-row unified CQI
         df['umts_cqi'] = df.apply(calculate_unified_cqi_umts_row, axis=1)
