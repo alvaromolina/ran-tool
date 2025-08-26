@@ -102,6 +102,31 @@ def _range_mean(df: Optional[pd.DataFrame], preferred_cols: List[str]) -> Option
     return None if np.isnan(m) else m
 
 
+def _sum_mean(df: Optional[pd.DataFrame], include_cols: List[str]) -> Optional[float]:
+    """Sum selected columns row-wise and return the mean, ignoring zeros/NaNs.
+    If none of the include_cols exist, fall back to _range_mean over numerics.
+    """
+    if df is None or df.empty:
+        return None
+    df = df.replace([np.inf, -np.inf], np.nan)
+    try:
+        df = df.infer_objects(copy=False)
+    except Exception:
+        pass
+    cols = [c for c in include_cols if c in df.columns]
+    if not cols:
+        return _range_mean(df, preferred_cols=[])
+    num_df = df[cols].apply(lambda s: pd.to_numeric(s, errors="coerce"))
+    num_df = num_df.replace(0, np.nan)
+    if num_df.empty:
+        return None
+    has_any = num_df.notna().any(axis=1)
+    row_sums = num_df.fillna(0).sum(axis=1)
+    row_sums = row_sums.where(has_any, np.nan)
+    m = float(row_sums.mean())
+    return None if np.isnan(m) else m
+
+
 def _delta(a: Optional[float], b: Optional[float]) -> Optional[float]:
     # delta = (a - b) / max(|b|, eps) where a is newer period
     if a is None or b is None:
@@ -171,26 +196,31 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'site_data':
-        df = _call_with_timeout(get_traffic_data_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
-        print(tech)
- 
-        columns_to_keep = [
-            "h3g_traffic_d_user_ps_gb",
-            "e3g_traffic_d_user_ps_gb",
-            "n3g_traffic_d_user_ps_gb"
+        # Aggregate total data traffic across 3G + 4G + 5G
+        df = _call_with_timeout(get_traffic_data_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=None, vendor=None)
+        DATA_COLS = [
+            # 3G packet data
+            "h3g_traffic_d_user_ps_gb", "e3g_traffic_d_user_ps_gb", "n3g_traffic_d_user_ps_gb",
+            # 4G packet data (multiple regions/prefixes)
+            "h4g_traffic_d_user_ps_gb", "s4g_traffic_d_user_ps_gb", "e4g_traffic_d_user_ps_gb", "n4g_traffic_d_user_ps_gb",
+            # 5G NSA PDCP data per legs
+            "e5g_nsa_traffic_pdcp_gb_5gendc_4glegn", "n5g_nsa_traffic_pdcp_gb_5gendc_4glegn",
+            "e5g_nsa_traffic_pdcp_gb_5gendc_5gleg", "n5g_nsa_traffic_pdcp_gb_5gendc_5gleg",
         ]
-
-        df_selected = df[columns_to_keep]
-
-        print(df_selected)
-        val = _range_mean(df, preferred_cols=[])
-        print(val)
+        val = _sum_mean(df, DATA_COLS)
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'site_voice':
-        df = _call_with_timeout(get_traffic_voice_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=tech, vendor=None)
-        val = _range_mean(df, preferred_cols=[])
+        # Aggregate total voice traffic across 3G CS + VoLTE
+        df = _call_with_timeout(get_traffic_voice_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=None, vendor=None)
+        VOICE_COLS = [
+            # 3G CS voice
+            "h3g_traffic_v_user_cs", "e3g_traffic_v_user_cs", "n3g_traffic_v_user_cs",
+            # VoLTE components
+            "user_traffic_volte_e", "user_traffic_volte_h", "user_traffic_volte_n", "user_traffic_volte_s",
+        ]
+        val = _sum_mean(df, VOICE_COLS)
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
@@ -201,14 +231,24 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_data':
-        df = _call_with_timeout(get_neighbor_traffic_data, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
-        val = _range_mean(df, preferred_cols=[])
+        df = _call_with_timeout(get_neighbor_traffic_data, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None)
+        DATA_COLS = [
+            "h3g_traffic_d_user_ps_gb", "e3g_traffic_d_user_ps_gb", "n3g_traffic_d_user_ps_gb",
+            "h4g_traffic_d_user_ps_gb", "s4g_traffic_d_user_ps_gb", "e4g_traffic_d_user_ps_gb", "n4g_traffic_d_user_ps_gb",
+            "e5g_nsa_traffic_pdcp_gb_5gendc_4glegn", "n5g_nsa_traffic_pdcp_gb_5gendc_4glegn",
+            "e5g_nsa_traffic_pdcp_gb_5gendc_5gleg", "n5g_nsa_traffic_pdcp_gb_5gendc_5gleg",
+        ]
+        val = _sum_mean(df, DATA_COLS)
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_voice':
-        df = _call_with_timeout(get_neighbor_traffic_voice, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vendor=None)
-        val = _range_mean(df, preferred_cols=[])
+        df = _call_with_timeout(get_neighbor_traffic_voice, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None)
+        VOICE_COLS = [
+            "h3g_traffic_v_user_cs", "e3g_traffic_v_user_cs", "n3g_traffic_v_user_cs",
+            "user_traffic_volte_e", "user_traffic_volte_h", "user_traffic_volte_n", "user_traffic_volte_s",
+        ]
+        val = _sum_mean(df, VOICE_COLS)
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
@@ -265,20 +305,16 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
     last_end = max_d
     last_start = max_d - timedelta(days=req.period) if max_d else None
 
-    # Metric plan: (name, metric_key, tech)
+    # Metric plan: keep CQI per-tech, but aggregate Data and Voice totals
     plan: List[Tuple[str, str, Optional[str]]] = []
     for tech in ("3G", "4G", "5G"):
         plan.append((f"Site CQI {tech}", 'site_cqi', tech))
-    for tech in ("3G", "4G", "5G"):
-        plan.append((f"Site Data {tech}", 'site_data', tech))
-    for tech in ("3G", "4G"):
-        plan.append((f"Site Voice {tech}", 'site_voice', tech))
+    plan.append(("Site Data (3G+4G+5G)", 'site_data', None))
+    plan.append(("Site Voice (3G+VoLTE)", 'site_voice', None))
     for tech in ("3G", "4G", "5G"):
         plan.append((f"Neighbors CQI {tech}", 'nb_cqi', tech))
-    for tech in ("3G", "4G", "5G"):
-        plan.append((f"Neighbors Data {tech}", 'nb_data', tech))
-    for tech in ("3G", "4G"):
-        plan.append((f"Neighbors Voice {tech}", 'nb_voice', tech))
+    plan.append(("Neighbors Data (3G+4G+5G)", 'nb_data', None))
+    plan.append(("Neighbors Voice (3G+VoLTE)", 'nb_voice', None))
 
     metrics: List[MetricEvaluation] = []
     debug_timings: Dict[str, float] = {}

@@ -205,12 +205,10 @@ function App() {
       const title = 'RAN Quality Analysis Report'
       const titleY = margin + 10
       pdf.text(title, pageWidth / 2, titleY, { align: 'center' } as any)
-      // Metadata (smaller)
+      // No separate metadata row on page 1 anymore; keep a small spacer under the title
       pdf.setFont('helvetica', 'normal')
       pdf.setFontSize(10)
-      const rowY = titleY + 20
-      pdf.text(`Site: ${siteId}    Input Date: ${inputDate || '—'}    Last Date: ${lastDate || '—'}`,
-        margin, rowY)
+      const rowY = titleY + 14
 
       const src = outputsRef.current
       const evalMetricsEl = src.querySelector('.eval-metrics') as HTMLElement | null
@@ -228,22 +226,30 @@ function App() {
         // Line 1: "Evaluation Result"
         pdf.setFont('helvetica', 'bold'); pdf.setFontSize(14)
         pdf.text('Evaluation Result', margin, y)
-        y += 14 // move to next line for badge row
+        y += 18 // move to next line for badge row
         // Line 2: badge + info
-        const bh = 18, bw = Math.max(48, pdf.getTextWidth(overall || '—') + 14)
-        const by = y + 2
+        const bh = 18
+        const tBadge = (overall || '—')
+        const tWBadge = pdf.getTextWidth(tBadge)
+        const padXBadge = 8
+        const bw = Math.max(48, tWBadge + padXBadge * 2)
         const bx = margin
+        const by = y + 2
+        const rectY = by - 12
         pdf.setFillColor(fill[0], fill[1], fill[2])
-        pdf.roundedRect(bx, by - 12, bw, bh, 8, 8, 'F')
+        pdf.roundedRect(bx, rectY, bw, bh, 8, 8, 'F')
         pdf.setTextColor(textColor[0], textColor[1], textColor[2])
         pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11)
-        pdf.text(overall || '—', bx + 7, by)
+        // Vertically center: jsPDF uses baseline; approximate ascent with 0.35*fontSize
+        const baseAdjust = 0.35 * 11
+        const textY = rectY + (bh / 2) + baseAdjust - 1
+        pdf.text(tBadge, bx + bw / 2, textY, { align: 'center' } as any)
         pdf.setTextColor(0,0,0)
-        // Right of badge: date and threshold
+        // Right of badge: site, dates and threshold
         const infoX = bx + bw + 12
         const thrStr = isFinite(evalThreshold as number) ? `${Math.round((evalThreshold as number) * 100)}%` : '—'
         pdf.setFont('helvetica', 'normal'); pdf.setFontSize(11)
-        pdf.text(`Date: ${inputDate || '—'}    Threshold: ${thrStr}`, infoX, by)
+        pdf.text(`Site: ${siteId}    Date: ${inputDate || '—'}    Last Date: ${lastDate || '—'}    Threshold: ${thrStr}`, infoX, by)
         // Move Y down for tables (extra padding to avoid overlap)
         y = by + 28
       }
@@ -337,11 +343,25 @@ function App() {
                 if (verdict.includes('pass')) { fill = [209, 250, 229]; color = [6, 78, 59] }
                 else if (verdict.includes('fail')) { fill = [254, 226, 226]; color = [127, 29, 29] }
                 else if (verdict.includes('restor')) { fill = [219, 234, 254]; color = [30, 64, 175] }
+                // Compute pill width from text and center within cell
+                const fs = Math.max(8, fontBody)
+                pdf.setFont('helvetica', 'bold'); pdf.setFontSize(fs)
+                const tW = pdf.getTextWidth(text)
+                const padX = 6
+                const rectW = Math.min(w - 4, Math.max(36 * scaleX, tW + padX * 2))
+                const rectH = Math.max(12, rowH - 6)
+                const rectX = xx + 2 + (w - 4 - rectW) / 2
+                const rectY = yy - rowH + (rowH - rectH) / 2
                 pdf.setFillColor(fill[0], fill[1], fill[2])
-                pdf.roundedRect(xx + 2, yy - rowH + 4, Math.min(w - 4, 48 * scaleX), rowH - 6, 6, 6, 'F')
+                pdf.roundedRect(rectX, rectY, rectW, rectH, 6, 6, 'F')
                 pdf.setTextColor(color[0], color[1], color[2])
-                pdf.text(text, xx + 6, yy - 4)
+                // Vertically center text inside pill
+                const baseAdj = 0.35 * fs
+                const tY = rectY + rectH / 2 + baseAdj - 1
+                pdf.text(text, rectX + rectW / 2, tY, { align: 'center' } as any)
+                // Restore defaults for the rest of the table body
                 pdf.setTextColor(0,0,0)
+                pdf.setFont('helvetica', 'normal'); pdf.setFontSize(fontBody)
               } else {
                 // right align numeric columns 1..6
                 const isNum = i > 0 && i < cw.length - 2
@@ -396,7 +416,7 @@ function App() {
         const mapW = pageWidth - margin * 2
         // Title for the map section
         pdf.setFont('helvetica', 'bold'); pdf.setFontSize(13)
-        pdf.text('Neighbors', margin, y)
+        pdf.text('Neighbors Map', margin, y)
         y += 10
         let mapH = mapCanvas.height * mapW / mapCanvas.width
         const remaining = pageHeight - margin - y
@@ -1047,7 +1067,31 @@ function App() {
                       <div className="chart-loading" style={{ height: 360 }} />
                     ) : mapGeo.length > 0 ? (
                       <div className="map-wrap">
-                        <MapContainer ref={mapRef} center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }} preferCanvas={true} zoomAnimation={false}>
+                        <MapContainer
+                          ref={mapRef}
+                          center={mapCenter}
+                          zoom={13}
+                          style={{ height: '100%', width: '100%' }}
+                          preferCanvas={true}
+                          zoomAnimation={false}
+                          whenReady={() => {
+                            try {
+                              if (!mapCenter || !Array.isArray(mapCenter) || mapCenter.length !== 2) return
+                              const [lat, lng] = mapCenter as [number, number]
+                              const r = (radiusKm || 0) * 1000
+                              if (!r || r <= 0) return
+                              const dLat = r / 111320
+                              const cosLat = Math.max(Math.cos(lat * Math.PI / 180), 1e-6)
+                              const dLng = r / (111320 * cosLat)
+                              const south = lat - dLat
+                              const north = lat + dLat
+                              const west = lng - dLng
+                              const east = lng + dLng
+                              // @ts-ignore
+                              mapRef.current?.fitBounds([[south, west], [north, east]], { padding: [20, 20], animate: false })
+                            } catch {}
+                          }}
+                        >
                           <TileLayer
                             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
