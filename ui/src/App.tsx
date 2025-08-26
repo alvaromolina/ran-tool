@@ -148,7 +148,8 @@ function App() {
       const lastDate = maxCandidate || inputDate || ''
 
       // Helper to capture a specific element via an offscreen clone
-      const scale = 2
+      // Lower capture scale to reduce image size while preserving legibility
+      const scale = 1.5
       async function captureElement(el: HTMLElement, extraCss?: string): Promise<HTMLCanvasElement> {
         const off = document.createElement('div')
         off.style.position = 'fixed'
@@ -411,7 +412,7 @@ function App() {
           '.block-title{display:none!important;}.btn-grid{display:none!important;}.button-show{display:none!important;}' +
           '.map-wrap{padding:0!important;margin:0!important;}' +
           '.leaflet-zoom-animated{transition:none!important;}',
-          (window as any).devicePixelRatio || 1
+          Math.min(((window as any).devicePixelRatio || 1), 1.5)
         )
         const mapW = pageWidth - margin * 2
         // Title for the map section
@@ -421,14 +422,15 @@ function App() {
         let mapH = mapCanvas.height * mapW / mapCanvas.width
         const remaining = pageHeight - margin - y
         if (mapH > remaining) mapH = remaining
-        pdf.addImage(mapCanvas.toDataURL('image/png'), 'PNG', margin, y, mapW, mapH)
+        // Use JPEG with medium quality to reduce PDF size
+        pdf.addImage(mapCanvas.toDataURL('image/jpeg', 0.72), 'JPEG', margin, y, mapW, mapH)
         y += mapH
       } else if (src) {
         // Fallback: capture the whole outputs if specific sections not found
         const canvas = await captureElement(src)
         const imgW = pageWidth - margin * 2
         const imgH = canvas.height * imgW / canvas.width
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, y, imgW, imgH)
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.72), 'JPEG', margin, y, imgW, imgH)
       }
 
       // PAGE 2: Site KPIs (Plot01–Plot03)
@@ -464,7 +466,7 @@ function App() {
           const drawH = h0 * scaleFit
           const x = margin + (maxW - drawW) / 2
           const y2 = margin + (maxH - drawH) / 2
-          pdf.addImage(canvas2.toDataURL('image/png'), 'PNG', x, y2, drawW, drawH)
+          pdf.addImage(canvas2.toDataURL('image/jpeg', 0.72), 'JPEG', x, y2, drawW, drawH)
         }
       }
 
@@ -500,7 +502,7 @@ function App() {
           const drawH = h0 * scaleFit
           const x = margin + (maxW - drawW) / 2
           const y3 = margin + (maxH - drawH) / 2
-          pdf.addImage(canvas3.toDataURL('image/png'), 'PNG', x, y3, drawW, drawH)
+          pdf.addImage(canvas3.toDataURL('image/jpeg', 0.72), 'JPEG', x, y3, drawW, drawH)
         }
       }
 
