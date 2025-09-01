@@ -2,7 +2,8 @@ html, body, #root { width: 100%; min-height: 100%; }
 #root {
   max-width: 100%;
   margin: 0;
-  padding: 2rem;
+  /* Reduce left padding so the left menu sits closer to the edge; keep right padding generous */
+  padding: 1rem 2rem 2rem 1rem;
   text-align: left; /* align everything to the left */
 }
 
@@ -48,6 +49,8 @@ html, body, #root { width: 100%; min-height: 100%; }
   flex-direction: column;
   gap: 16px;
   width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
 .app-header {
@@ -58,7 +61,13 @@ html, body, #root { width: 100%; min-height: 100%; }
   border: 1px solid #2a2a2a;
   border-radius: 10px;
   background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0));
-  width: 95%;
+  width: 100%;
+  position: sticky;
+  top: 12px;
+  backdrop-filter: blur(6px);
+  box-sizing: border-box;
+  max-width: 100%;
+  margin: 0; /* rely on container padding for alignment */
 }
 .app-header h1 {
   font-size: 20px;
@@ -84,9 +93,12 @@ html, body, #root { width: 100%; min-height: 100%; }
   text-align: left;
   background: rgba(255,255,255,0.02);
   width: 100%;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
+  border-color: rgba(128,128,128,0.18);
+  box-sizing: border-box;
 }
 
-.panel.controls { width: 85%; grid-column: 1; }
+.panel.controls { width: 100%; grid-column: 1; }
 
 .controls h2 {
   margin: 0 0 8px 0;
@@ -241,6 +253,15 @@ html, body, #root { width: 100%; min-height: 100%; }
 /* Show/primary variant color (applied in TSX via className "button-show") */
 .btn-grid.button-show { --btn-bg: #3b82f6; /* Tailwind blue-500 */ }
 
+/* Ghost variant for secondary actions */
+.btn-grid.button-ghost {
+  --btn-bg: transparent;
+  color: inherit;
+  border-color: rgba(128,128,128,0.25);
+  background: transparent;
+}
+.btn-grid.button-ghost:hover { background: rgba(127,127,127,0.08); }
+
 .note { font-size: 13px; color: #9aa0a6; margin-top: 8px; }
 .note.error { color: #ff6b6b; }
 
@@ -251,7 +272,14 @@ html, body, #root { width: 100%; min-height: 100%; }
   padding: 12px 14px;
   background: #0f0f0f;
   margin-bottom: 8px;
-  width: 95%;
+  width: 100%;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
+  border-color: rgba(128,128,128,0.18);
+  box-sizing: border-box;
+  max-width: 100%;
+  /* No external margins; align to container padding */
+  margin-left: 0;
+  margin-right: 0;
 }
 .start-callout {
   display: flex;
@@ -269,12 +297,23 @@ html, body, #root { width: 100%; min-height: 100%; }
 [data-theme='light'] .callout-body { color: #6b7280; }
 
 .outputs { overflow: hidden; }
-.panel.outputs { width: 94%; justify-self: stretch; align-self: stretch; min-width: 0; grid-column: 2; }
+.panel.outputs {
+  width: 100%;
+  justify-self: stretch;
+  align-self: stretch;
+  min-width: 0;
+  grid-column: 2;
+  margin: 0;
+  padding: 16px; /* symmetric inner spacing left/right */
+  box-sizing: border-box;
+}
 .output-grid {
   display: grid;
   grid-template-columns: 1fr; /* one plot per row */
   gap: 16px;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   justify-items: stretch;
   align-items: stretch;
 }
@@ -284,10 +323,12 @@ html, body, #root { width: 100%; min-height: 100%; }
   gap: 8px;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .output-grid > * { width: 100%; }
-.block-title { font-size: 13px; color: #9aa0a6; }
-.chart-block { width: 100%; min-width: 0; padding: 0 8px; box-sizing: border-box; }
+.block-title { font-size: 13px; color: #9aa0a6; margin-bottom: 4px; }
+.chart-block { width: 100%; min-width: 0; padding: 0 4px; box-sizing: border-box; max-width: 100%; }
 /* Ensure Recharts container expands to full width */
 .chart-block .recharts-responsive-container { width: 100% !important; }
 .chart-empty {
@@ -329,6 +370,7 @@ html, body, #root { width: 100%; min-height: 100%; }
   border: 1px solid #2a2a2a;
   border-radius: 8px;
   overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
 }
 
 /* Subtle static labels for map points */
@@ -396,6 +438,8 @@ html, body, #root { width: 100%; min-height: 100%; }
   border: 1px solid #2a2a2a;
   border-radius: 12px;
   padding: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
+  border-color: rgba(128,128,128,0.18);
 }
 [data-theme='light'] .modal { background: #ffffff; border-color: #e5e7eb; }
 
@@ -422,8 +466,9 @@ html, body, #root { width: 100%; min-height: 100%; }
 [data-theme='light'] #root { background: #fafafa; }
 [data-theme='light'] .app-header {
   border-color: #e5e7eb;
-  background: linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0));
+  background: rgba(255,255,255,0.8);
 }
+[data-theme='dark'] .app-header { background: rgba(16,16,16,0.6); }
 [data-theme='light'] .panel { border-color: #e5e7eb; background: #ffffff; }
 [data-theme='light'] .panel.controls { background: #ffffff; }
 [data-theme='light'] .controls h2 { color: #111827; }
@@ -487,7 +532,7 @@ html, body, #root { width: 100%; min-height: 100%; }
   display: grid;
   /* Name | Before | After | Last | Δ A/B | Δ L/B | Class | Verdict */
   grid-template-columns: 1.6fr 0.8fr 0.8fr 0.8fr 0.9fr 0.9fr 0.9fr 0.9fr;
-  gap: 8px;
+  gap: 10px;
 }
 .evaluation-banner .thead {
   font-size: 11px;
@@ -499,7 +544,7 @@ html, body, #root { width: 100%; min-height: 100%; }
 .evaluation-banner .tbody { display: grid; gap: 6px; margin-top: 8px; font-size: 12px; }
 .evaluation-banner .trow { align-items: center; }
 .evaluation-banner .cell.name { font-weight: 500; color: #e5e7eb; }
-.evaluation-banner .cell.num { font-variant-numeric: tabular-nums; color: #cbd5e1; }
+.evaluation-banner .cell.num { font-variant-numeric: tabular-nums; color: #cbd5e1; text-align: right; }
 .vbadge {
   display: inline-block;
   padding: 2px 8px;
