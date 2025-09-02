@@ -2,6 +2,7 @@ import os
 import dotenv
 import pandas as pd
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import create_engine, text
 
 # Load environment variables
@@ -108,10 +109,26 @@ def get_cqi_daily_calculated(att_name, min_date=None, max_date=None, technology=
     if technology == '5G':
         return get_nr_cqi_daily_calculated(att_name, min_date=min_date, max_date=max_date)
 
-    # technology is None: merge three techs
-    df3 = get_umts_cqi_daily_calculated(att_name, min_date=min_date, max_date=max_date)
-    df4 = get_lte_cqi_daily_calculated(att_name, min_date=min_date, max_date=max_date)
-    df5 = get_nr_cqi_daily_calculated(att_name, min_date=min_date, max_date=max_date)
+    # technology is None: fetch three techs in parallel
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f3 = ex.submit(get_umts_cqi_daily_calculated, att_name, min_date, max_date)
+        f4 = ex.submit(get_lte_cqi_daily_calculated, att_name, min_date, max_date)
+        f5 = ex.submit(get_nr_cqi_daily_calculated, att_name, min_date, max_date)
+        try:
+            df3 = f3.result()
+        except Exception as e:
+            print(f"UMTS CQI parallel error: {e}")
+            df3 = None
+        try:
+            df4 = f4.result()
+        except Exception as e:
+            print(f"LTE CQI parallel error: {e}")
+            df4 = None
+        try:
+            df5 = f5.result()
+        except Exception as e:
+            print(f"NR CQI parallel error: {e}")
+            df5 = None
 
     # Ensure DataFrames exist
     if df3 is None and df4 is None and df5 is None:

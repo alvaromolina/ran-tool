@@ -7,6 +7,20 @@ html, body, #root { width: 100%; min-height: 100%; }
   text-align: left; /* align everything to the left */
 }
 
+/* Brand blues */
+:root {
+  --brand-blue-400: #60a5fa;
+  --brand-blue-500: #3b82f6;
+  --brand-blue-600: #2563eb;
+  --brand-blue-700: #1d4ed8;
+}
+[data-theme='light'] :root {
+  --brand-blue-400: #60a5fa;
+  --brand-blue-500: #3b82f6;
+  --brand-blue-600: #2563eb;
+  --brand-blue-700: #1d4ed8;
+}
+
 .logo {
   height: 6em;
   padding: 1.5em;
@@ -58,12 +72,11 @@ html, body, #root { width: 100%; min-height: 100%; }
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border: 1px solid #2a2a2a;
+  border: 1px solid rgba(59,130,246,0.25); /* blue-500 tint */
   border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0));
+  background: linear-gradient(180deg, rgba(59,130,246,0.10), rgba(59,130,246,0.04));
   width: 100%;
-  position: sticky;
-  top: 12px;
+  position: static; /* scroll with content */
   backdrop-filter: blur(6px);
   box-sizing: border-box;
   max-width: 100%;
@@ -127,6 +140,11 @@ html, body, #root { width: 100%; min-height: 100%; }
   border: 1px solid #2a2a2a;
   background: #0e0e0e;
   color: #e5e5e5;
+}
+.field input:focus {
+  outline: none;
+  border-color: var(--brand-blue-500);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.25);
 }
 
 /* Cross-browser calendar icon: custom SVG background; keep native picker clickable */
@@ -233,7 +251,7 @@ html, body, #root { width: 100%; min-height: 100%; }
   padding: 8px 12px;
   border-radius: 8px;
   border: 1px solid transparent;
-  background: var(--btn-bg, #0d6efd);
+  background: var(--btn-bg, var(--brand-blue-600));
   color: white;
   font-weight: 600;
   transition: background .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease;
@@ -248,10 +266,11 @@ html, body, #root { width: 100%; min-height: 100%; }
 .btn-grid:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* Subtle hover when enabled */
-.btn-grid:not(:disabled):hover { filter: brightness(0.95); }
+.btn-grid:not(:disabled):hover { filter: none; background: var(--brand-blue-700); }
+.btn-grid:not(:disabled):active { background: #1e40af; }
 
 /* Show/primary variant color (applied in TSX via className "button-show") */
-.btn-grid.button-show { --btn-bg: #3b82f6; /* Tailwind blue-500 */ }
+.btn-grid.button-show { --btn-bg: var(--brand-blue-600); }
 
 /* Ghost variant for secondary actions */
 .btn-grid.button-ghost {
@@ -281,6 +300,7 @@ html, body, #root { width: 100%; min-height: 100%; }
   margin-left: 0;
   margin-right: 0;
 }
+.callout { border-left: 3px solid var(--brand-blue-600); }
 .start-callout {
   display: flex;
   gap: 10px;
@@ -295,6 +315,7 @@ html, body, #root { width: 100%; min-height: 100%; }
 [data-theme='light'] .callout { background: #ffffff; border-color: #e5e7eb; }
 [data-theme='light'] .callout-title { color: #111827; }
 [data-theme='light'] .callout-body { color: #6b7280; }
+[data-theme='light'] .callout { border-left-color: var(--brand-blue-500); }
 
 .outputs { overflow: hidden; }
 .panel.outputs {
@@ -420,6 +441,8 @@ html, body, #root { width: 100%; min-height: 100%; }
   color: #e5e5e5;
   cursor: pointer;
 }
+[data-theme='dark'] .button-show:hover { background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.35); }
+[data-theme='light'] .button-show:hover { background: rgba(59,130,246,0.10); border-color: #bfdbfe; }
 [data-theme='light'] .button-show { background: #f8fafc; color: #111827; border-color: #e5e7eb; }
 
 /* Modal */
@@ -466,7 +489,7 @@ html, body, #root { width: 100%; min-height: 100%; }
 [data-theme='light'] #root { background: #fafafa; }
 [data-theme='light'] .app-header {
   border-color: #e5e7eb;
-  background: rgba(255,255,255,0.8);
+  background: linear-gradient(180deg, rgba(59,130,246,0.10), rgba(59,130,246,0.02));
 }
 [data-theme='dark'] .app-header { background: rgba(16,16,16,0.6); }
 [data-theme='light'] .panel { border-color: #e5e7eb; background: #ffffff; }
