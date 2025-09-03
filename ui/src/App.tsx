@@ -592,12 +592,21 @@ function App() {
     let cancelled = false
     setEvalLoading(true)
     setEvalError(null)
-    api.evaluate({ site_att: s, input_date, threshold: evalThreshold, period: evalPeriod, guard: evalGuard })
+    api.evaluate({ site_att: s, input_date, threshold: evalThreshold, period: evalPeriod, guard: evalGuard, radius_km: radiusKm })
       .then(res => { if (!cancelled) setEvalResult(res) })
       .catch(err => { if (!cancelled) setEvalError(String(err)) })
       .finally(() => { if (!cancelled) setEvalLoading(false) })
     return () => { cancelled = true }
-  }, [selectedSite, evalThreshold, evalPeriod, evalGuard, evalDate, isValidEvalDate, isValidSite])
+  }, [selectedSite, evalThreshold, evalPeriod, evalGuard, evalDate, isValidEvalDate, isValidSite, radiusKm])
+
+  // Tie chart loading spinners to evaluation loading state
+  useEffect(() => {
+    if (!isValidSite || !isValidEvalDate) return
+    setFetchedSiteOnce(true)
+    setFetchedNbOnce(true)
+    setLoadingSite(evalLoading)
+    setLoadingNb(evalLoading)
+  }, [evalLoading, isValidSite, isValidEvalDate])
 
 
   // Debounced site autocomplete
@@ -708,71 +717,125 @@ function App() {
     URL.revokeObjectURL(url)
   }
 
-  // Auto-fetch site datasets only when a selected site and a valid date are set
-  useEffectReact(() => {
-    const s = selectedSite?.trim()
-    if (!isValidSite || !isValidEvalDate) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        setLoadingSite(true)
-        setError(null)
-        // clear old site datasets to avoid showing stale charts while loading
-        setSiteCqi([]); setSiteTraffic([]); setSiteVoice([])
-        // mark that we've started fetching so loaders appear
-        setFetchedSiteOnce(true)
-        const [cqi, traffic, voice] = await Promise.all([
-          api.cqi(s, {}),
-          api.traffic(s, {}),
-          api.voice(s, {}),
-        ])
-        if (cancelled) return
-        setSiteCqi(Array.isArray(cqi) ? cqi : [])
-        setSiteTraffic(Array.isArray(traffic) ? asTrafficByTech(traffic) : [])
-        setSiteVoice(Array.isArray(voice) ? asVoice3GVolte(voice) : [])
-      } catch (e: any) {
-        if (!cancelled) setError(String(e))
-      } finally {
-        if (!cancelled) setLoadingSite(false)
+  // Derive site and neighbor datasets from evaluate().data
+  // Helper: extract a canonical time key from a row
+  function timeKeyOf(row: any): string | null {
+    if (!row || typeof row !== 'object') return null
+    const ks = ['date','time','day','timestamp']
+    for (const k of ks) { if (row[k] != null) return String(row[k]) }
+    return null
+  }
+  // Helper: combine window buckets (before/after/between/mid/last) into a single deduped array by time key
+  function combineWindows(win?: { [k: string]: any[] }): any[] {
+    if (!win) return []
+    const order = ['before','after','between','mid','last']
+    const map = new Map<string, any>()
+    for (const w of order) {
+      const arr = Array.isArray((win as any)[w]) ? (win as any)[w] : []
+      for (const r of arr) {
+        const t = timeKeyOf(r)
+        if (!t) continue
+        // merge shallowly, later windows overwrite to ensure latest value per timestamp
+        const prev = map.get(t) || {}
+        const merged = { ...prev, ...r }
+        // Ensure both common x keys are present so charts can snap correctly
+        if (merged.date == null) merged.date = t
+        if (merged.time == null) merged.time = t
+        map.set(t, merged)
       }
-    })()
-    return () => { cancelled = true }
-  }, [selectedSite, isValidEvalDate, isValidSite])
+    }
+    // sort by time ascending if parseable
+    const rows = Array.from(map.entries()).map(([t, obj]) => ({ ...obj, date: obj.date ?? t, time: obj.time ?? t }))
+    rows.sort((a, b) => {
+      const ta = Date.parse(a.date || a.time || a.day || a.timestamp || '')
+      const tb = Date.parse(b.date || b.time || b.day || b.timestamp || '')
+      if (Number.isNaN(ta) || Number.isNaN(tb)) return String(a.date).localeCompare(String(b.date))
+      return ta - tb
+    })
+    // Ensure daily continuity so chart snapping hits exact event/guard dates
+    function fillDaily(rr: any[]): any[] {
+      if (!rr.length) return rr
+      const parse = (s: string) => Date.parse(s)
+      const fmt = (t: number) => new Date(t).toISOString().slice(0,10)
+      const startT = parse(rr[0].date)
+      const endT = parse(rr[rr.length - 1].date)
+      if (Number.isNaN(startT) || Number.isNaN(endT)) return rr
+      const have = new Set<string>(rr.map(r => String(r.date || r.time)))
+      const out = [...rr]
+      for (let t = startT; t <= endT; t += 24*3600*1000) {
+        const d = fmt(t)
+        if (!have.has(d)) out.push({ date: d, time: d })
+      }
+      out.sort((a, b) => String(a.date).localeCompare(String(b.date)))
+      return out
+    }
+    return fillDaily(rows)
+  }
+  // Helper: build CQI merged series (columns cqi_3g, cqi_4g, cqi_5g)
+  function buildCqiMerged(scope: 'site'|'neighbors', data: any): any[] {
+    const root = data?.[scope]?.cqi || {}
+    const win3 = root?.['3G'] as any || {}
+    const win4 = root?.['4G'] as any || {}
+    const win5 = root?.['5G'] as any || {}
+    const arr3 = combineWindows(win3)
+    const arr4 = combineWindows(win4)
+    const arr5 = combineWindows(win5)
+    const map = new Map<string, any>()
+    function mergeArr(arr: any[], col: 'cqi_3g'|'cqi_4g'|'cqi_5g') {
+      for (const r of arr) {
+        const t = timeKeyOf(r)
+        if (!t) continue
+        const prev = map.get(t) || {}
+        // Try to locate a CQI-like numeric field from row; accept first numeric value
+        let val: number | undefined = undefined
+        for (const [k, v] of Object.entries(r)) {
+          if (typeof v === 'number' && /(cqi|lte|nr|umts|3g|4g|5g)/i.test(k)) { val = v; break }
+        }
+        // If not found, attempt common keys explicitly
+        if (val == null) {
+          const keys = ['lte_cqi','nr_cqi','umts_cqi','cqi','avg_cqi','mean_cqi']
+          for (const k of keys) { if (typeof (r as any)[k] === 'number') { val = (r as any)[k]; break } }
+        }
+        map.set(t, { ...prev, date: t, [col]: val })
+      }
+    }
+    mergeArr(arr3, 'cqi_3g'); mergeArr(arr4, 'cqi_4g'); mergeArr(arr5, 'cqi_5g')
+    const rows = Array.from(map.values())
+    rows.sort((a, b) => Date.parse(a.date) - Date.parse(b.date))
+    return rows
+  }
 
-  // Auto-fetch neighbor datasets (including geo) only when a selected site and a valid date are set
   useEffectReact(() => {
-    const s = selectedSite?.trim()
-    if (!isValidSite || !isValidEvalDate) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        setLoadingNb(true)
-        setError(null)
-        // clear neighbor datasets while loading
-        setMapGeo([]); setNbCqi([]); setNbTraffic([]); setNbVoice([])
-        // show loaders immediately for neighbors
-        setFetchedNbOnce(true)
-        const [geo, cqi, traffic, voice] = await Promise.all([
-          api.neighborsGeo(s, { radius_km: radiusKm }),
-          // request all technologies (backend returns lte_cqi, nr_cqi, umts_cqi)
-          api.neighborsCqi(s, { radius_km: radiusKm }),
-          api.neighborsTraffic(s, { radius_km: radiusKm }),
-          api.neighborsVoice(s, { radius_km: radiusKm }),
-        ])
-        if (cancelled) return
-        setMapGeo(Array.isArray(geo) ? geo : [])
-        setNbCqi(Array.isArray(cqi) ? cqi : [])
-        setNbTraffic(Array.isArray(traffic) ? asTrafficByTech(traffic) : [])
-        setNbVoice(Array.isArray(voice) ? asVoice3GVolte(voice) : [])
-        setFetchedNbOnce(true)
-      } catch (e: any) {
-        if (!cancelled) setError(String(e))
-      } finally {
-        if (!cancelled) setLoadingNb(false)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [selectedSite, radiusKm, isValidEvalDate, isValidSite])
+    const d = (evalResult as any)?.data
+    if (!d) {
+      // when no data, clear charts but keep previous fetched flags
+      setSiteCqi([]); setSiteTraffic([]); setSiteVoice([])
+      setNbCqi([]); setNbTraffic([]); setNbVoice([]); setMapGeo([])
+      return
+    }
+    try {
+      setFetchedSiteOnce(true); setFetchedNbOnce(true)
+      setLoadingSite(false); setLoadingNb(false)
+      // Geo
+      setMapGeo(Array.isArray(d?.neighbors?.geo) ? d.neighbors.geo : [])
+      // Site datasets
+      const siteTrafficRows = combineWindows(d?.site?.traffic?.total)
+      const siteVoiceRows = combineWindows(d?.site?.voice?.total)
+      setSiteTraffic(asTrafficByTech(siteTrafficRows))
+      setSiteVoice(asVoice3GVolte(siteVoiceRows))
+      setSiteCqi(buildCqiMerged('site', d))
+      // Neighbor datasets
+      const nbTrafficRows = combineWindows(d?.neighbors?.traffic?.total)
+      const nbVoiceRows = combineWindows(d?.neighbors?.voice?.total)
+      setNbTraffic(asTrafficByTech(nbTrafficRows))
+      setNbVoice(asVoice3GVolte(nbVoiceRows))
+      setNbCqi(buildCqiMerged('neighbors', d))
+    } catch (e) {
+      setError(String(e))
+    }
+  }, [evalResult])
+
+  // Previous neighbor fetch effect removed; neighbors derived from evaluate().data
 
   return (
     <StatsigProvider client={client} loadingComponent={<div>Loading...</div>}>

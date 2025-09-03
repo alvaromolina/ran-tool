@@ -8,7 +8,7 @@ import pandas as pd
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from .sites import df_json_records
+from .sites import df_json_records, get_neighbors_geo
 from cell_change_evolution.select_db_master_node import get_max_date
 from cell_change_evolution.select_db_cqi_daily import (
     get_cqi_daily_calculated,
@@ -55,6 +55,8 @@ class EvaluateResponse(BaseModel):
     options: dict
     overall: Optional[Literal["Pass", "Fail", "Restored", "Inconclusive"]]
     metrics: List[MetricEvaluation]
+    # Consolidated datasets so the UI can render everything from a single call
+    data: Optional[dict] = None
 
 
 # ----- Helpers -----
@@ -192,6 +194,9 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
         df = _call_with_timeout(get_cqi_daily_calculated, 10.0, att_name=site_att, min_date=frm, max_date=to, technology=tech)
         # select_db_cqi_daily outputs: umts_cqi, lte_cqi, nr_cqi
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
+        # Scale CQI to 0-100 for API output consistency
+        if val is not None and not np.isnan(val):
+            val = float(val) * 100.0
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
@@ -227,6 +232,9 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
     if metric == 'nb_cqi':
         df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
+        # Scale CQI to 0-100 for API output consistency
+        if val is not None and not np.isnan(val):
+            val = float(val) * 100.0
         if timings is not None:
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
@@ -253,6 +261,49 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     return None
+
+
+def _fetch_timeseries(site_att: str, tech: Optional[str], start: Optional[date], end: Optional[date], metric: str, radius_km: float) -> list:
+    """Fetch raw timeseries rows (JSON records) for a given metric/window.
+    metric in { 'site_cqi','site_data','site_voice','nb_cqi','nb_data','nb_voice' }.
+    """
+    frm = _date_str(start)
+    to = _date_str(end)
+    if metric == 'site_cqi':
+        df = _call_with_timeout(get_cqi_daily_calculated, 10.0, att_name=site_att, min_date=frm, max_date=to, technology=tech)
+        # Scale CQI columns to 0-100 for API output
+        try:
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                for col in ('umts_cqi', 'lte_cqi', 'nr_cqi'):
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce') * 100.0
+        except Exception:
+            pass
+        return df_json_records(df)
+    if metric == 'site_data':
+        df = _call_with_timeout(get_traffic_data_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=None, vendor=None)
+        return df_json_records(df)
+    if metric == 'site_voice':
+        df = _call_with_timeout(get_traffic_voice_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=None, vendor=None)
+        return df_json_records(df)
+    if metric == 'nb_cqi':
+        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
+        # Scale CQI columns to 0-100 for API output
+        try:
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                for col in ('umts_cqi', 'lte_cqi', 'nr_cqi'):
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce') * 100.0
+        except Exception:
+            pass
+        return df_json_records(df)
+    if metric == 'nb_data':
+        df = _call_with_timeout(get_neighbor_traffic_data, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None)
+        return df_json_records(df)
+    if metric == 'nb_voice':
+        df = _call_with_timeout(get_neighbor_traffic_voice, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None)
+        return df_json_records(df)
+    return []
 
 
 @router.post("")
@@ -298,12 +349,14 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
             max_date_source = "site_fallback"
         else:
             max_date_source = "none"
-    before_start = req.input_date - timedelta(days=req.guard + req.period)
-    before_end = req.input_date - timedelta(days=req.guard)
-    after_start = req.input_date + timedelta(days=req.guard)
-    after_end = req.input_date + timedelta(days=req.guard + req.period)
+    # Define inclusive windows with exactly `period` days each
+    # before: ends just before the guard; after: starts just after the guard
+    before_end = req.input_date - timedelta(days=req.guard + 1)
+    before_start = before_end - timedelta(days=req.period - 1)
+    after_start = req.input_date + timedelta(days=req.guard + 1)
+    after_end = after_start + timedelta(days=req.period - 1)
     last_end = max_d
-    last_start = max_d - timedelta(days=req.period) if max_d else None
+    last_start = (last_end - timedelta(days=req.period - 1)) if last_end else None
 
     # Metric plan: keep CQI per-tech, but aggregate Data and Voice totals
     plan: List[Tuple[str, str, Optional[str]]] = []
@@ -414,6 +467,119 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
     else:
         overall = "Inconclusive"
 
+    # Build consolidated datasets under remaining global budget
+    data_payload: Dict[str, Any] = {
+        "site": {"cqi": {}, "traffic": {}, "voice": {}},
+        "neighbors": {"cqi": {}, "traffic": {}, "voice": {}, "geo": []},
+    }
+
+    # Prepare dataset tasks (windowed)
+    DTask = Tuple[str, str, Optional[str], str]  # (scope:site|neighbors, mkey, tech, window)
+    d_tasks: List[DTask] = []
+    for tech in ("3G", "4G", "5G"):
+        d_tasks.append(("site", "site_cqi", tech, "before"))
+        d_tasks.append(("site", "site_cqi", tech, "after"))
+        # Always include the guard gap between 'before' and 'after'
+        d_tasks.append(("site", "site_cqi", tech, "between"))
+        if last_start and last_end:
+            # Include the span between 'after' and 'last' as 'mid'
+            d_tasks.append(("site", "site_cqi", tech, "mid"))
+            d_tasks.append(("site", "site_cqi", tech, "last"))
+        d_tasks.append(("neighbors", "nb_cqi", tech, "before"))
+        d_tasks.append(("neighbors", "nb_cqi", tech, "after"))
+        d_tasks.append(("neighbors", "nb_cqi", tech, "between"))
+        if last_start and last_end:
+            d_tasks.append(("neighbors", "nb_cqi", tech, "mid"))
+            d_tasks.append(("neighbors", "nb_cqi", tech, "last"))
+    # totals
+    for mkey_site, mkey_nb in (("site_data", "nb_data"), ("site_voice", "nb_voice")):
+        for w in ("before", "after"):
+            d_tasks.append(("site", mkey_site, None, w))
+            d_tasks.append(("neighbors", mkey_nb, None, w))
+        # Always include the guard gap between 'before' and 'after'
+        d_tasks.append(("site", mkey_site, None, "between"))
+        d_tasks.append(("neighbors", mkey_nb, None, "between"))
+        if last_start and last_end:
+            d_tasks.append(("site", mkey_site, None, "mid"))
+            d_tasks.append(("site", mkey_site, None, "last"))
+            d_tasks.append(("neighbors", mkey_nb, None, "mid"))
+            d_tasks.append(("neighbors", mkey_nb, None, "last"))
+
+    def dtask_window_bounds(window: str) -> Tuple[Optional[date], Optional[date]]:
+        if window == "before":
+            return before_start, before_end
+        if window == "after":
+            return after_start, after_end
+        if window == "between":
+            # define the guard gap as the days strictly between before_end and after_start
+            s = (before_end + timedelta(days=1)) if before_end else None
+            e = (after_start - timedelta(days=1)) if after_start else None
+            if s and e and s > e:
+                return None, None
+            return s, e
+        if window == "mid":
+            # define the span between end of after and start of last, if last exists
+            if not (last_start and last_end):
+                return None, None
+            s = (after_end + timedelta(days=1)) if after_end else None
+            e = (last_start - timedelta(days=1)) if last_start else None
+            if s and e and s > e:
+                return None, None
+            return s, e
+        return last_start, last_end
+
+    def run_dtask(task: DTask) -> Tuple[DTask, list]:
+        scope, mkey, tech, window = task
+        s, e = dtask_window_bounds(window)
+        recs = _fetch_timeseries(req.site_att, tech, s, e, mkey, req.radius_km)
+        return task, recs
+
+    # Execute dataset tasks with remaining budget
+    remaining = 25.0 - (time.perf_counter() - start_time)
+    d_results: Dict[DTask, list] = {}
+    if remaining > 0:
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+        try:
+            future_map = {ex.submit(run_dtask, t): t for t in d_tasks}
+            for fut in concurrent.futures.as_completed(future_map, timeout=remaining):
+                task, recs = fut.result()
+                d_results[task] = recs
+        except concurrent.futures.TimeoutError:
+            print("[evaluate] dataset collection timed out; returning partial datasets")
+        finally:
+            try:
+                ex.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+
+    # Collate into payload
+    def put(scope: str, kind: str, tech: Optional[str], window: str, recs: list):
+        target = data_payload[scope]
+        bucket = None
+        if kind in ("site_cqi", "nb_cqi"):
+            bucket = target["cqi"]
+        elif kind in ("site_data", "nb_data"):
+            bucket = target["traffic"]
+        elif kind in ("site_voice", "nb_voice"):
+            bucket = target["voice"]
+        key = tech or "total"
+        if key not in bucket:
+            bucket[key] = {"before": [], "after": [], "between": [], "mid": [], "last": []}
+        if window not in bucket[key]:
+            bucket[key][window] = []
+        bucket[key][window] = recs
+
+    for task, recs in d_results.items():
+        scope, mkey, tech, window = task
+        put(scope, mkey, tech, window, recs)
+
+    # Neighbors geo (one-shot, outside windows)
+    try:
+        geo = get_neighbors_geo(req.site_att, radius_km=req.radius_km) or []
+        data_payload["neighbors"]["geo"] = geo
+    except Exception as e:
+        print(f"[evaluate] neighbors geo error: {e}")
+
     return EvaluateResponse(
         site_att=req.site_att,
         input_date=req.input_date,
@@ -433,4 +599,5 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
         },
         overall=overall,  # type: ignore[arg-type]
         metrics=metrics,
+        data=data_payload,
     )
