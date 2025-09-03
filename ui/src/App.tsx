@@ -6,8 +6,19 @@ import { useRef, useEffect as useEffectReact } from 'react'
 import { SimpleLineChart, SimpleStackedBar } from './components/Charts'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
+import { StatsigProvider, useClientAsyncInit } from '@statsig/react-bindings';
+import { StatsigAutoCapturePlugin } from '@statsig/web-analytics';
+import { StatsigSessionReplayPlugin } from '@statsig/session-replay';
+
 
 function App() {
+
+  const { client } = useClientAsyncInit(
+    "client-KHopjAwMOOYZmJI6daYMwqyqPyW7eV3JcaKiz4xRn8U",
+    { userID: 'a-user' }, 
+    { plugins: [ new StatsigAutoCapturePlugin(), new StatsigSessionReplayPlugin() ] },
+  );
+
   const [health, setHealth] = useState<string>('checking...')
   const [theme, setTheme] = useState<'dark'|'light'>(() => (localStorage.getItem('theme') as 'dark'|'light') || 'dark')
   const [site, setSite] = useState<string>('')
@@ -764,476 +775,478 @@ function App() {
   }, [selectedSite, radiusKm, isValidEvalDate, isValidSite])
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <div>
-          <h1>RAN Quality Evaluator</h1>
-          <div className="sub">API Health: <code>{health}</code></div>
-        </div>
-        <button
-          className="theme-toggle icon"
-          onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-        >
-          {theme === 'dark' ? (
-            // Sun icon for switching to light
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
-              <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          ) : (
-            // Moon icon for switching to dark
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/>
-            </svg>
-          )}
-        </button>
-      </header>
-
-      <main className="layout">
-        {!selectedSite && (
-          <div className="callout start-callout" role="status" aria-live="polite">
-            <div className="callout-title">Start by choosing a site</div>
-            <div className="callout-body">
-              Enter a Site ATT code in the box below and pick one of the suggestions to load data.
-            </div>
-            <div className="callout-actions">
-              <button className="button-show" type="button" onClick={() => siteInputRef.current?.focus()}>
-                Search site
-              </button>
-            </div>
+    <StatsigProvider client={client} loadingComponent={<div>Loading...</div>}>
+      <div className="app">
+        <header className="app-header">
+          <div>
+            <h1>RAN Quality Evaluator</h1>
+            <div className="sub">API Health: <code>{health}</code></div>
           </div>
-        )}
+          <button
+            className="theme-toggle icon"
+            onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {theme === 'dark' ? (
+              // Sun icon for switching to light
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            ) : (
+              // Moon icon for switching to dark
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/>
+              </svg>
+            )}
+          </button>
+        </header>
 
-        <section className="panel controls">
-          <h2>Controls</h2>
-          <div className="form-row">
-            <label className="field">
-              <span>Site ATT</span>
-              <input
-                ref={siteInputRef}
-                value={site}
-                onChange={(e) => { setSite(e.target.value); setSelectedSite(''); setIsValidSite(false); }}
-                placeholder="SITE_ID"
-              />
-              {(siteLoading || siteSuggestions.length > 0) && (
-                <div className="suggest">
-                  {siteLoading && <div className="suggest-item muted">Searching…</div>}
-                  {!siteLoading && siteSuggestions.length > 0 && (
-                    <div className="suggest-list">
-                      {siteSuggestions.map((s) => (
-                        <div
-                          key={s}
-                          className="suggest-item"
-                          onClick={() => { setSite(s); setSelectedSite(s); setSiteSuggestions([]) }}
+        <main className="layout">
+          {!selectedSite && (
+            <div className="callout start-callout" role="status" aria-live="polite">
+              <div className="callout-title">Start by choosing a site</div>
+              <div className="callout-body">
+                Enter a Site ATT code in the box below and pick one of the suggestions to load data.
+              </div>
+              <div className="callout-actions">
+                <button className="button-show" type="button" onClick={() => siteInputRef.current?.focus()}>
+                  Search site
+                </button>
+              </div>
+            </div>
+          )}
+
+          <section className="panel controls">
+            <h2>Controls</h2>
+            <div className="form-row">
+              <label className="field">
+                <span>Site ATT</span>
+                <input
+                  ref={siteInputRef}
+                  value={site}
+                  onChange={(e) => { setSite(e.target.value); setSelectedSite(''); setIsValidSite(false); }}
+                  placeholder="SITE_ID"
+                />
+                {(siteLoading || siteSuggestions.length > 0) && (
+                  <div className="suggest">
+                    {siteLoading && <div className="suggest-item muted">Searching…</div>}
+                    {!siteLoading && siteSuggestions.length > 0 && (
+                      <div className="suggest-list">
+                        {siteSuggestions.map((s) => (
+                          <div
+                            key={s}
+                            className="suggest-item"
+                            onClick={() => { setSite(s); setSelectedSite(s); setSiteSuggestions([]) }}
+                          >
+                            {s}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </label>
+
+              <label className="field date-field">
+                <span>Input date</span>
+                <div className="date-input-wrap">
+                  <input
+                    ref={evalDateInputRef}
+                    type="date"
+                    value={evalDate}
+                    onChange={(e) => { setEvalDate(e.target.value) }}
+                  />
+                  <button
+                    type="button"
+                    className="date-picker-button"
+                    aria-label="Open calendar"
+                    title="Open calendar"
+                    onClick={openNativeDatePicker}
+                  />
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    className="btn-grid btn-primary button-show button-small"
+                    type="button"
+                    onClick={() => setShowEventDatesModal(true)}
+                    disabled={!isValidSite}
+                    title={isValidSite ? 'Open event dates' : 'Select a valid site first'}
+                  >
+                    Suggested event dates…
+                  </button>
+                </div>
+              </label>
+              <label className="field">
+                <span>Radius (km)</span>
+                <input
+                  type="number"
+                  min={0.1}
+                  step={0.1}
+                  value={radiusKm}
+                  onChange={(e) => setRadiusKm(parseFloat(e.target.value))}
+                />
+              </label>
+            </div>
+
+            
+            <div className="form-row">
+              <label className="field">
+                <span>Threshold (%)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={Math.round(evalThreshold * 10000) / 100}
+                  onChange={e => setEvalThreshold(Math.max(0, Math.min(1, (parseFloat(e.target.value) || 0) / 100)))}
+                />
+              </label>
+
+              <label className="field">
+                <span>Period (days)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  step={1}
+                  value={evalPeriod}
+                  onChange={e => setEvalPeriod(Math.max(1, Math.min(90, parseInt(e.target.value || '0', 10))))}
+                />
+              </label>
+              <label className="field">
+                <span>Guard (days)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={90}
+                  step={1}
+                  value={evalGuard}
+                  onChange={e => setEvalGuard(Math.max(0, Math.min(90, parseInt(e.target.value || '0', 10))))}
+                />
+              </label>
+            </div>
+
+            {/* per-chart loading placeholders show in each chart. We only show loaders after first fetch starts */}
+            {error && <div className="note error">{error}</div>}
+
+          </section>
+
+          <section className="panel outputs" ref={outputsRef}>
+            <div className={`evaluation-banner ${evalResult?.overall ? `is-${evalResult.overall.toLowerCase()}` : ''}`}>
+              {site ? (
+                evalLoading ? (
+                  <div className="eval-loading">Evaluating…</div>
+                ) : evalError ? (
+                  <div className="eval-error">Evaluation error: {evalError}</div>
+                ) : evalResult ? (
+                  <>
+                    <div className="eval-title">Evaluation Result</div>
+                    <div className="eval-summary">
+                      <span className="badge">{evalResult.overall || 'Inconclusive'}</span>
+                      <span className="meta">Date: {evalResult.input_date}</span>
+                      <span className="meta">Threshold: {(evalResult.options?.threshold ?? 0.05) * 100}%</span>
+                      <span className="meta">
+                        <button
+                          className="button-show"
+                          onClick={handleDownloadOutputsPdf}
+                          disabled={downloadingOutputsPdf}
+                          title="Generate PDF"
                         >
-                          {s}
+                          {downloadingOutputsPdf ? 'Generating…' : 'Generate PDF'}
+                        </button>
+                      </span>
+                    </div>
+                    {evalResult.metrics?.length ? (
+                      <div className="eval-metrics">
+                        {(() => {
+                          const siteMetrics = (evalResult.metrics || []).filter((m: any) => typeof m?.name === 'string' && m.name.startsWith('Site '))
+                          const nbMetrics = (evalResult.metrics || []).filter((m: any) => typeof m?.name === 'string' && m.name.startsWith('Neighbors '))
+                          const Table = ({ title, rows }: { title: string; rows: any[] }) => {
+                            const fmtVal = (v: any) => (v != null && Number.isFinite(v)) ? (Number(v).toFixed(2)) : '—'
+                            const fmtPct = (v: any) => (v != null && Number.isFinite(v)) ? `${(Number(v)*100).toFixed(1)}%` : '—'
+                            return (
+                              <div className="eval-col">
+                                <div className="col-title">{title}</div>
+                                <div className="mtable">
+                                  <div className="thead">
+                                    <div>Name</div>
+                                    <div>Before</div>
+                                    <div>After</div>
+                                    <div>Last</div>
+                                    <div>ΔAfter/Before</div>
+                                    <div>ΔLast/Before</div>
+                                    <div>Class</div>
+                                    <div>Verdict</div>
+                                  </div>
+                                  <div className="tbody">
+                                    {rows.map((m: any, i: number) => (
+                                      <div className="trow" key={i}>
+                                        <div className="cell name">{(m.name || '').replace(/^(Site|Neighbors)\s+/, '')}</div>
+                                        <div className="cell num">{fmtVal(m.before_mean)}</div>
+                                        <div className="cell num">{fmtVal(m.after_mean)}</div>
+                                        <div className="cell num">{fmtVal(m.last_mean)}</div>
+                                        <div className="cell num">{fmtPct(m.delta_after_before)}</div>
+                                        <div className="cell num">{fmtPct(m.delta_last_before)}</div>
+                                        <div className="cell">{m.klass || '—'}</div>
+                                        <div className="cell"><span className={`vbadge vb-${(m.verdict||'inconclusive').toLowerCase()}`}>{m.verdict || 'Inconclusive'}</span></div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          }
+                          return (
+                            <div className="eval-columns">
+                              <Table title="Site" rows={siteMetrics} />
+                              <Table title="Neighbors" rows={nbMetrics} />
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="eval-empty">No evaluation yet.</div>
+                )
+              ) : (
+                <div className="eval-empty">Choose a site to see the evaluation summary.</div>
+              )}
+            </div>
+            <div className="output-grid">
+              {(() => {
+                const inputDate = (evalResult?.input_date || evalDate) as string | undefined
+                const ranges = (evalResult?.options?.ranges || {}) as any
+                // prefer the true last date present in any loaded dataset
+                const dateKeys = ['date','time','day','timestamp']
+                function rowsMaxDate(rows: any[]): number | null {
+                  if (!rows || rows.length === 0) return null
+                  let best: number | null = null
+                  for (const r of rows) {
+                    for (const k of dateKeys) {
+                      if (r && r[k] != null) {
+                        const t = typeof r[k] === 'string' ? Date.parse(r[k]) : (typeof r[k] === 'number' ? r[k] : NaN)
+                        if (!Number.isNaN(t)) best = best == null ? t : Math.max(best, t)
+                        break
+                      }
+                    }
+                  }
+                  return best
+                }
+                const candidatesNum: Array<number> = []
+                const s1 = rowsMaxDate(siteCqi); if (s1 != null) candidatesNum.push(s1)
+                const s2 = rowsMaxDate(siteTraffic); if (s2 != null) candidatesNum.push(s2)
+                const s3 = rowsMaxDate(siteVoice); if (s3 != null) candidatesNum.push(s3)
+                const n1 = rowsMaxDate(nbCqi); if (n1 != null) candidatesNum.push(n1)
+                const n2 = rowsMaxDate(nbTraffic); if (n2 != null) candidatesNum.push(n2)
+                const n3 = rowsMaxDate(nbVoice); if (n3 != null) candidatesNum.push(n3)
+                const dataMaxStr = candidatesNum.length ? new Date(Math.max(...candidatesNum)).toISOString().slice(0,10) : undefined
+                const maxCandidate = [
+                  dataMaxStr,
+                  ranges?.last?.to,
+                  ranges?.after?.to,
+                  ranges?.before?.to,
+                ].filter(Boolean).sort().slice(-1)[0] as string | undefined
+                const xMax = maxCandidate || inputDate
+                const xMin = inputDate ? new Date(new Date(inputDate).getTime() - 30*24*3600*1000).toISOString().slice(0,10) : undefined
+                const lineColor = theme === 'dark' ? '#ffffff' : '#111111'
+                const regionStroke = theme === 'dark' ? '#3ea0ff' : '#0a84ff'
+                const regionFill = theme === 'dark' ? '#2578ff' : '#0a84ff'
+                const regionFillOpacity = theme === 'dark' ? 0.14 : 0.06
+                const regionStrokeWidth = theme === 'dark' ? 2 : 1
+                const vLines = inputDate ? [{ x: inputDate, stroke: lineColor, strokeDasharray: '8 8', strokeWidth: 3 as const, label: '' }] : []
+                const mkRegion = (r?: {from?: string; to?: string}) => (r?.from && r?.to ? { from: r.from, to: r.to, stroke: regionStroke, strokeDasharray: '6 6', strokeWidth: regionStrokeWidth, fill: regionFill, fillOpacity: regionFillOpacity } : null)
+                const mkLastRegion = (r?: {from?: string; to?: string}) => (r?.from && r?.to ? { from: r.from, to: r.to, stroke: regionStroke, strokeDasharray: '6 6', strokeWidth: 2, fill: regionFill, fillOpacity: regionFillOpacity } : null)
+                const regions = [mkRegion(ranges?.before), mkRegion(ranges?.after), mkLastRegion(ranges?.last)].filter(Boolean) as any[]
+                const common = { xMin, xMax, vLines, regions }
+                return (
+                  <>
+                    <div className="output-block">
+                      <div className="block-title">Plot01 – Site CQIs</div>
+                      <SimpleLineChart data={siteCqi} title="Site CQIs" loading={loadingSite && fetchedSiteOnce} {...common} />
+                    </div>
+                    <div className="output-block">
+                      <div className="block-title">Plot02 – Site Data Traffic</div>
+                      <SimpleStackedBar data={siteTraffic} title="Site Data Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
+                    </div>
+                    <div className="output-block">
+                      <div className="block-title">Plot03 – Site Voice Traffic</div>
+                      <SimpleStackedBar data={siteVoice} title="Site Voice Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
+                    </div>
+                    <div className="output-block block-map">
+                      <div className="block-title">Plot04 – Map</div>
+                      {loadingNb && fetchedNbOnce ? (
+                        <div className="chart-loading" style={{ height: 360 }} />
+                      ) : mapGeo.length > 0 ? (
+                        <div className="map-wrap">
+                          <MapContainer
+                            ref={mapRef}
+                            center={mapCenter}
+                            zoom={13}
+                            style={{ height: '100%', width: '100%' }}
+                            preferCanvas={true}
+                            zoomAnimation={false}
+                            whenReady={() => {
+                              try {
+                                if (!mapCenter || !Array.isArray(mapCenter) || mapCenter.length !== 2) return
+                                const [lat, lng] = mapCenter as [number, number]
+                                const r = (radiusKm || 0) * 1000
+                                if (!r || r <= 0) return
+                                const dLat = r / 111320
+                                const cosLat = Math.max(Math.cos(lat * Math.PI / 180), 1e-6)
+                                const dLng = r / (111320 * cosLat)
+                                const south = lat - dLat
+                                const north = lat + dLat
+                                const west = lng - dLng
+                                const east = lng + dLng
+                                // @ts-ignore
+                                mapRef.current?.fitBounds([[south, west], [north, east]], { padding: [20, 20], animate: false })
+                              } catch {}
+                            }}
+                          >
+                            <TileLayer
+                              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                              crossOrigin="anonymous"
+                              detectRetina={false}
+                            />
+                            {/* radius circle for context (render first so it's beneath markers) */}
+                            <Circle center={mapCenter} radius={radiusKm * 1000} pathOptions={{ color: '#9aa0a6' }} interactive={false} />
+                            {mapGeo.map((g, idx) => (
+                              g.role === 'center' ? (
+                                <CircleMarker key={`c-${idx}`} center={[g.latitude, g.longitude]} radius={8} pathOptions={{ color: '#34c759' }}>
+                                  <Tooltip permanent direction="bottom" offset={[0, 10]} opacity={0.85} className="map-label">{g.att_name}</Tooltip>
+                                  <Popup>Center: {g.att_name}</Popup>
+                                </CircleMarker>
+                              ) : (
+                                <CircleMarker key={`n-${idx}`} center={[g.latitude, g.longitude]} radius={6} pathOptions={{ color: '#f4c20d' }}>
+                                  <Tooltip permanent direction="bottom" offset={[0, 10]} opacity={0.85} className="map-label">{g.att_name}</Tooltip>
+                                  <Popup>Neighbor: {g.att_name}</Popup>
+                                </CircleMarker>
+                              )
+                            ))}
+                          </MapContainer>
                         </div>
-                      ))}
+                      ) : (
+                        <div className="chart-empty" style={{ height: 360 }}>No neighbor geometry available. Choose a valid site and radius.</div>
+                      )}
+                      <div style={{ marginTop: 8 }}>
+                        <button className="btn-grid button-show" onClick={() => setShowSitesModal(true)}>Show sites</button>
+                      </div>
+                    </div>
+                    <div className="output-block" id="plot05">
+                      <div className="block-title">Plot05 – Neighbor CQIs</div>
+                      <SimpleLineChart data={nbCqi} title="Neighbor CQIs" loading={loadingNb && fetchedNbOnce} {...common} />
+                    </div>
+                    <div className="output-block">
+                      <div className="block-title">Plot06 – Neighbor Data Traffic</div>
+                      <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" loading={loadingNb && fetchedNbOnce} {...common} />
+                    </div>
+                    <div className="output-block">
+                      <div className="block-title">Plot07 – Neighbor Voice Traffic</div>
+                      <SimpleStackedBar data={nbVoice} title="Neighbor Voice" loading={loadingNb && fetchedNbOnce} {...common} />
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          </section>
+          {showSitesModal && (
+            <div className="modal-backdrop" onClick={() => setShowSitesModal(false)}>
+              <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-title">Neighbor Sites</div>
+                <div className="modal-body">
+                  {nbSitesLoading ? (
+                    <div className="note">Loading…</div>
+                  ) : nbSitesError ? (
+                    <div className="note error">{nbSitesError}</div>
+                  ) : nbSites.length === 0 ? (
+                    <div className="note muted">No neighbor sites found.</div>
+                  ) : (
+                    <div className="event-table neighbors">
+                      <div className="thead">
+                        <div>Site name</div>
+                        <div>Region</div>
+                        <div>Province</div>
+                        <div>Municipality</div>
+                        <div>Vendor</div>
+                      </div>
+                      <div className="tbody">
+                        {nbSites.map((r, i) => (
+                          <div className="trow" key={i}>
+                            <div className="cell">{r.site_name}</div>
+                            <div className="cell">{r.region || '—'}</div>
+                            <div className="cell">{r.province || '—'}</div>
+                            <div className="cell">{r.municipality || '—'}</div>
+                            <div className="cell">{r.vendor || '—'}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
-              )}
-            </label>
-
-            <label className="field date-field">
-              <span>Input date</span>
-              <div className="date-input-wrap">
-                <input
-                  ref={evalDateInputRef}
-                  type="date"
-                  value={evalDate}
-                  onChange={(e) => { setEvalDate(e.target.value) }}
-                />
-                <button
-                  type="button"
-                  className="date-picker-button"
-                  aria-label="Open calendar"
-                  title="Open calendar"
-                  onClick={openNativeDatePicker}
-                />
+                <div className="modal-actions">
+                  <button className="theme-toggle" onClick={exportNeighborsCsv} disabled={nbSitesLoading || nbSites.length===0}>Export CSV</button>
+                  <button className="theme-toggle" onClick={() => setShowSitesModal(false)}>Close</button>
+                </div>
               </div>
-              <div style={{ marginTop: 6 }}>
-                <button
-                  className="btn-grid btn-primary button-show button-small"
-                  type="button"
-                  onClick={() => setShowEventDatesModal(true)}
-                  disabled={!isValidSite}
-                  title={isValidSite ? 'Open event dates' : 'Select a valid site first'}
-                >
-                  Suggested event dates…
-                </button>
-              </div>
-            </label>
-            <label className="field">
-              <span>Radius (km)</span>
-              <input
-                type="number"
-                min={0.1}
-                step={0.1}
-                value={radiusKm}
-                onChange={(e) => setRadiusKm(parseFloat(e.target.value))}
-              />
-            </label>
-          </div>
-
-          
-          <div className="form-row">
-            <label className="field">
-              <span>Threshold (%)</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.5}
-                value={Math.round(evalThreshold * 10000) / 100}
-                onChange={e => setEvalThreshold(Math.max(0, Math.min(1, (parseFloat(e.target.value) || 0) / 100)))}
-              />
-            </label>
-
-            <label className="field">
-              <span>Period (days)</span>
-              <input
-                type="number"
-                min={1}
-                max={90}
-                step={1}
-                value={evalPeriod}
-                onChange={e => setEvalPeriod(Math.max(1, Math.min(90, parseInt(e.target.value || '0', 10))))}
-              />
-            </label>
-            <label className="field">
-              <span>Guard (days)</span>
-              <input
-                type="number"
-                min={0}
-                max={90}
-                step={1}
-                value={evalGuard}
-                onChange={e => setEvalGuard(Math.max(0, Math.min(90, parseInt(e.target.value || '0', 10))))}
-              />
-            </label>
-          </div>
-
-          {/* per-chart loading placeholders show in each chart. We only show loaders after first fetch starts */}
-          {error && <div className="note error">{error}</div>}
-
-        </section>
-
-        <section className="panel outputs" ref={outputsRef}>
-          <div className={`evaluation-banner ${evalResult?.overall ? `is-${evalResult.overall.toLowerCase()}` : ''}`}>
-            {site ? (
-              evalLoading ? (
-                <div className="eval-loading">Evaluating…</div>
-              ) : evalError ? (
-                <div className="eval-error">Evaluation error: {evalError}</div>
-              ) : evalResult ? (
-                <>
-                  <div className="eval-title">Evaluation Result</div>
-                  <div className="eval-summary">
-                    <span className="badge">{evalResult.overall || 'Inconclusive'}</span>
-                    <span className="meta">Date: {evalResult.input_date}</span>
-                    <span className="meta">Threshold: {(evalResult.options?.threshold ?? 0.05) * 100}%</span>
-                    <span className="meta">
-                      <button
-                        className="button-show"
-                        onClick={handleDownloadOutputsPdf}
-                        disabled={downloadingOutputsPdf}
-                        title="Generate PDF"
-                      >
-                        {downloadingOutputsPdf ? 'Generating…' : 'Generate PDF'}
-                      </button>
-                    </span>
-                  </div>
-                  {evalResult.metrics?.length ? (
-                    <div className="eval-metrics">
-                      {(() => {
-                        const siteMetrics = (evalResult.metrics || []).filter((m: any) => typeof m?.name === 'string' && m.name.startsWith('Site '))
-                        const nbMetrics = (evalResult.metrics || []).filter((m: any) => typeof m?.name === 'string' && m.name.startsWith('Neighbors '))
-                        const Table = ({ title, rows }: { title: string; rows: any[] }) => {
-                          const fmtVal = (v: any) => (v != null && Number.isFinite(v)) ? (Number(v).toFixed(2)) : '—'
-                          const fmtPct = (v: any) => (v != null && Number.isFinite(v)) ? `${(Number(v)*100).toFixed(1)}%` : '—'
+            </div>
+          )}
+          {showEventDatesModal && (
+            <div className="modal-backdrop" onClick={() => setShowEventDatesModal(false)}>
+              <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-title">Event Dates</div>
+                <div className="modal-body">
+                  {eventDatesLoading ? (
+                    <div className="note">Loading…</div>
+                  ) : eventDatesError ? (
+                    <div className="note error">{eventDatesError}</div>
+                  ) : eventDates.length === 0 ? (
+                    <div className="note muted">No events found.</div>
+                  ) : (
+                    <div className="event-table">
+                      <div className="thead">
+                        <div>Tech</div>
+                        <div>Date</div>
+                        <div>+Cells</div>
+                        <div>-Cells</div>
+                        <div>Total</div>
+                        <div>Remark</div>
+                      </div>
+                      <div className="tbody">
+                        {eventDates.slice(0, 500).map((r, i) => {
+                          const tClass = r.tech === '4G' ? 't4' : 't3'
                           return (
-                            <div className="eval-col">
-                              <div className="col-title">{title}</div>
-                              <div className="mtable">
-                                <div className="thead">
-                                  <div>Name</div>
-                                  <div>Before</div>
-                                  <div>After</div>
-                                  <div>Last</div>
-                                  <div>ΔAfter/Before</div>
-                                  <div>ΔLast/Before</div>
-                                  <div>Class</div>
-                                  <div>Verdict</div>
-                                </div>
-                                <div className="tbody">
-                                  {rows.map((m: any, i: number) => (
-                                    <div className="trow" key={i}>
-                                      <div className="cell name">{(m.name || '').replace(/^(Site|Neighbors)\s+/, '')}</div>
-                                      <div className="cell num">{fmtVal(m.before_mean)}</div>
-                                      <div className="cell num">{fmtVal(m.after_mean)}</div>
-                                      <div className="cell num">{fmtVal(m.last_mean)}</div>
-                                      <div className="cell num">{fmtPct(m.delta_after_before)}</div>
-                                      <div className="cell num">{fmtPct(m.delta_last_before)}</div>
-                                      <div className="cell">{m.klass || '—'}</div>
-                                      <div className="cell"><span className={`vbadge vb-${(m.verdict||'inconclusive').toLowerCase()}`}>{m.verdict || 'Inconclusive'}</span></div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
+                            <div
+                              key={`${r.tech}-${r.date}-${i}`}
+                              className="trow clickable"
+                              onClick={() => { setEvalDate(r.date); setShowEventDatesModal(false) }}
+                              title="Use this date for evaluation"
+                            >
+                              <div className="cell badge"><span className={`badge-tech ${tClass}`}>{r.tech}</span></div>
+                              <div className="cell">{r.date}</div>
+                              <div className="cell num">{r.add_cell ?? '—'}</div>
+                              <div className="cell num">{r.delete_cell ?? '—'}</div>
+                              <div className="cell num">{r.total_cell ?? '—'}</div>
+                              <div className="cell remark" title={r.remark ?? ''}>{r.remark ?? '—'}</div>
                             </div>
                           )
-                        }
-                        return (
-                          <div className="eval-columns">
-                            <Table title="Site" rows={siteMetrics} />
-                            <Table title="Neighbors" rows={nbMetrics} />
-                          </div>
-                        )
-                      })()}
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <div className="eval-empty">No evaluation yet.</div>
-              )
-            ) : (
-              <div className="eval-empty">Choose a site to see the evaluation summary.</div>
-            )}
-          </div>
-          <div className="output-grid">
-            {(() => {
-              const inputDate = (evalResult?.input_date || evalDate) as string | undefined
-              const ranges = (evalResult?.options?.ranges || {}) as any
-              // prefer the true last date present in any loaded dataset
-              const dateKeys = ['date','time','day','timestamp']
-              function rowsMaxDate(rows: any[]): number | null {
-                if (!rows || rows.length === 0) return null
-                let best: number | null = null
-                for (const r of rows) {
-                  for (const k of dateKeys) {
-                    if (r && r[k] != null) {
-                      const t = typeof r[k] === 'string' ? Date.parse(r[k]) : (typeof r[k] === 'number' ? r[k] : NaN)
-                      if (!Number.isNaN(t)) best = best == null ? t : Math.max(best, t)
-                      break
-                    }
-                  }
-                }
-                return best
-              }
-              const candidatesNum: Array<number> = []
-              const s1 = rowsMaxDate(siteCqi); if (s1 != null) candidatesNum.push(s1)
-              const s2 = rowsMaxDate(siteTraffic); if (s2 != null) candidatesNum.push(s2)
-              const s3 = rowsMaxDate(siteVoice); if (s3 != null) candidatesNum.push(s3)
-              const n1 = rowsMaxDate(nbCqi); if (n1 != null) candidatesNum.push(n1)
-              const n2 = rowsMaxDate(nbTraffic); if (n2 != null) candidatesNum.push(n2)
-              const n3 = rowsMaxDate(nbVoice); if (n3 != null) candidatesNum.push(n3)
-              const dataMaxStr = candidatesNum.length ? new Date(Math.max(...candidatesNum)).toISOString().slice(0,10) : undefined
-              const maxCandidate = [
-                dataMaxStr,
-                ranges?.last?.to,
-                ranges?.after?.to,
-                ranges?.before?.to,
-              ].filter(Boolean).sort().slice(-1)[0] as string | undefined
-              const xMax = maxCandidate || inputDate
-              const xMin = inputDate ? new Date(new Date(inputDate).getTime() - 30*24*3600*1000).toISOString().slice(0,10) : undefined
-              const lineColor = theme === 'dark' ? '#ffffff' : '#111111'
-              const regionStroke = theme === 'dark' ? '#3ea0ff' : '#0a84ff'
-              const regionFill = theme === 'dark' ? '#2578ff' : '#0a84ff'
-              const regionFillOpacity = theme === 'dark' ? 0.14 : 0.06
-              const regionStrokeWidth = theme === 'dark' ? 2 : 1
-              const vLines = inputDate ? [{ x: inputDate, stroke: lineColor, strokeDasharray: '8 8', strokeWidth: 3 as const, label: '' }] : []
-              const mkRegion = (r?: {from?: string; to?: string}) => (r?.from && r?.to ? { from: r.from, to: r.to, stroke: regionStroke, strokeDasharray: '6 6', strokeWidth: regionStrokeWidth, fill: regionFill, fillOpacity: regionFillOpacity } : null)
-              const mkLastRegion = (r?: {from?: string; to?: string}) => (r?.from && r?.to ? { from: r.from, to: r.to, stroke: regionStroke, strokeDasharray: '6 6', strokeWidth: 2, fill: regionFill, fillOpacity: regionFillOpacity } : null)
-              const regions = [mkRegion(ranges?.before), mkRegion(ranges?.after), mkLastRegion(ranges?.last)].filter(Boolean) as any[]
-              const common = { xMin, xMax, vLines, regions }
-              return (
-                <>
-                  <div className="output-block">
-                    <div className="block-title">Plot01 – Site CQIs</div>
-                    <SimpleLineChart data={siteCqi} title="Site CQIs" loading={loadingSite && fetchedSiteOnce} {...common} />
-                  </div>
-                  <div className="output-block">
-                    <div className="block-title">Plot02 – Site Data Traffic</div>
-                    <SimpleStackedBar data={siteTraffic} title="Site Data Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
-                  </div>
-                  <div className="output-block">
-                    <div className="block-title">Plot03 – Site Voice Traffic</div>
-                    <SimpleStackedBar data={siteVoice} title="Site Voice Traffic" loading={loadingSite && fetchedSiteOnce} {...common} />
-                  </div>
-                  <div className="output-block block-map">
-                    <div className="block-title">Plot04 – Map</div>
-                    {loadingNb && fetchedNbOnce ? (
-                      <div className="chart-loading" style={{ height: 360 }} />
-                    ) : mapGeo.length > 0 ? (
-                      <div className="map-wrap">
-                        <MapContainer
-                          ref={mapRef}
-                          center={mapCenter}
-                          zoom={13}
-                          style={{ height: '100%', width: '100%' }}
-                          preferCanvas={true}
-                          zoomAnimation={false}
-                          whenReady={() => {
-                            try {
-                              if (!mapCenter || !Array.isArray(mapCenter) || mapCenter.length !== 2) return
-                              const [lat, lng] = mapCenter as [number, number]
-                              const r = (radiusKm || 0) * 1000
-                              if (!r || r <= 0) return
-                              const dLat = r / 111320
-                              const cosLat = Math.max(Math.cos(lat * Math.PI / 180), 1e-6)
-                              const dLng = r / (111320 * cosLat)
-                              const south = lat - dLat
-                              const north = lat + dLat
-                              const west = lng - dLng
-                              const east = lng + dLng
-                              // @ts-ignore
-                              mapRef.current?.fitBounds([[south, west], [north, east]], { padding: [20, 20], animate: false })
-                            } catch {}
-                          }}
-                        >
-                          <TileLayer
-                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                            crossOrigin="anonymous"
-                            detectRetina={false}
-                          />
-                          {/* radius circle for context (render first so it's beneath markers) */}
-                          <Circle center={mapCenter} radius={radiusKm * 1000} pathOptions={{ color: '#9aa0a6' }} interactive={false} />
-                          {mapGeo.map((g, idx) => (
-                            g.role === 'center' ? (
-                              <CircleMarker key={`c-${idx}`} center={[g.latitude, g.longitude]} radius={8} pathOptions={{ color: '#34c759' }}>
-                                <Tooltip permanent direction="bottom" offset={[0, 10]} opacity={0.85} className="map-label">{g.att_name}</Tooltip>
-                                <Popup>Center: {g.att_name}</Popup>
-                              </CircleMarker>
-                            ) : (
-                              <CircleMarker key={`n-${idx}`} center={[g.latitude, g.longitude]} radius={6} pathOptions={{ color: '#f4c20d' }}>
-                                <Tooltip permanent direction="bottom" offset={[0, 10]} opacity={0.85} className="map-label">{g.att_name}</Tooltip>
-                                <Popup>Neighbor: {g.att_name}</Popup>
-                              </CircleMarker>
-                            )
-                          ))}
-                        </MapContainer>
+                        })}
                       </div>
-                    ) : (
-                      <div className="chart-empty" style={{ height: 360 }}>No neighbor geometry available. Choose a valid site and radius.</div>
-                    )}
-                    <div style={{ marginTop: 8 }}>
-                      <button className="btn-grid button-show" onClick={() => setShowSitesModal(true)}>Show sites</button>
                     </div>
-                  </div>
-                  <div className="output-block" id="plot05">
-                    <div className="block-title">Plot05 – Neighbor CQIs</div>
-                    <SimpleLineChart data={nbCqi} title="Neighbor CQIs" loading={loadingNb && fetchedNbOnce} {...common} />
-                  </div>
-                  <div className="output-block">
-                    <div className="block-title">Plot06 – Neighbor Data Traffic</div>
-                    <SimpleStackedBar data={nbTraffic} title="Neighbor Traffic" loading={loadingNb && fetchedNbOnce} {...common} />
-                  </div>
-                  <div className="output-block">
-                    <div className="block-title">Plot07 – Neighbor Voice Traffic</div>
-                    <SimpleStackedBar data={nbVoice} title="Neighbor Voice" loading={loadingNb && fetchedNbOnce} {...common} />
-                  </div>
-                </>
-              )
-            })()}
-          </div>
-        </section>
-        {showSitesModal && (
-          <div className="modal-backdrop" onClick={() => setShowSitesModal(false)}>
-            <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-title">Neighbor Sites</div>
-              <div className="modal-body">
-                {nbSitesLoading ? (
-                  <div className="note">Loading…</div>
-                ) : nbSitesError ? (
-                  <div className="note error">{nbSitesError}</div>
-                ) : nbSites.length === 0 ? (
-                  <div className="note muted">No neighbor sites found.</div>
-                ) : (
-                  <div className="event-table neighbors">
-                    <div className="thead">
-                      <div>Site name</div>
-                      <div>Region</div>
-                      <div>Province</div>
-                      <div>Municipality</div>
-                      <div>Vendor</div>
-                    </div>
-                    <div className="tbody">
-                      {nbSites.map((r, i) => (
-                        <div className="trow" key={i}>
-                          <div className="cell">{r.site_name}</div>
-                          <div className="cell">{r.region || '—'}</div>
-                          <div className="cell">{r.province || '—'}</div>
-                          <div className="cell">{r.municipality || '—'}</div>
-                          <div className="cell">{r.vendor || '—'}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="modal-actions">
-                <button className="theme-toggle" onClick={exportNeighborsCsv} disabled={nbSitesLoading || nbSites.length===0}>Export CSV</button>
-                <button className="theme-toggle" onClick={() => setShowSitesModal(false)}>Close</button>
+                  )}
+                </div>
+                <div className="modal-actions">
+                  <button className="theme-toggle" onClick={() => setShowEventDatesModal(false)}>Close</button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        {showEventDatesModal && (
-          <div className="modal-backdrop" onClick={() => setShowEventDatesModal(false)}>
-            <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-title">Event Dates</div>
-              <div className="modal-body">
-                {eventDatesLoading ? (
-                  <div className="note">Loading…</div>
-                ) : eventDatesError ? (
-                  <div className="note error">{eventDatesError}</div>
-                ) : eventDates.length === 0 ? (
-                  <div className="note muted">No events found.</div>
-                ) : (
-                  <div className="event-table">
-                    <div className="thead">
-                      <div>Tech</div>
-                      <div>Date</div>
-                      <div>+Cells</div>
-                      <div>-Cells</div>
-                      <div>Total</div>
-                      <div>Remark</div>
-                    </div>
-                    <div className="tbody">
-                      {eventDates.slice(0, 500).map((r, i) => {
-                        const tClass = r.tech === '4G' ? 't4' : 't3'
-                        return (
-                          <div
-                            key={`${r.tech}-${r.date}-${i}`}
-                            className="trow clickable"
-                            onClick={() => { setEvalDate(r.date); setShowEventDatesModal(false) }}
-                            title="Use this date for evaluation"
-                          >
-                            <div className="cell badge"><span className={`badge-tech ${tClass}`}>{r.tech}</span></div>
-                            <div className="cell">{r.date}</div>
-                            <div className="cell num">{r.add_cell ?? '—'}</div>
-                            <div className="cell num">{r.delete_cell ?? '—'}</div>
-                            <div className="cell num">{r.total_cell ?? '—'}</div>
-                            <div className="cell remark" title={r.remark ?? ''}>{r.remark ?? '—'}</div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="modal-actions">
-                <button className="theme-toggle" onClick={() => setShowEventDatesModal(false)}>Close</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
+          )}
+        </main>
+      </div>
+    </StatsigProvider>
   )
 }
 

@@ -10,14 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@statsig/react-bindings": "^3.24.4",
+    "@statsig/session-replay": "^3.24.4",
+    "@statsig/web-analytics": "^3.24.4",
     "@types/leaflet": "^1.9.20",
-    "recharts": "^2.12.7",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.1",
     "leaflet": "^1.9.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-leaflet": "^5.0.0",
-    "html2canvas": "^1.4.1",
-    "jspdf": "^2.5.1"
+    "recharts": "^2.12.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
