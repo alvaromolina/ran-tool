@@ -257,14 +257,8 @@ export const SimpleStackedBar: React.FC<{ data: any[]; xKey?: string; height?: n
               strokeDasharray={r.strokeDasharray || '6 6'}
               strokeWidth={r.strokeWidth || 2}
               fill={r.fill || '#0a84ff'}
-              fillOpacity={Math.max(r.fillOpacity ?? 0.1, 0.18)}
+              fillOpacity={r.fillOpacity ?? 0.06}
             />
-          ))}
-          {snappedRegions.map((r, idx) => (
-            <ReferenceLine key={`reg-start-${idx}`} x={r.from} stroke={(r.stroke || '#0a84ff')} strokeDasharray={r.strokeDasharray || '6 6'} strokeWidth={1} />
-          ))}
-          {snappedRegions.map((r, idx) => (
-            <ReferenceLine key={`reg-end-${idx}`} x={r.to} stroke={(r.stroke || '#0a84ff')} strokeDasharray={r.strokeDasharray || '6 6'} strokeWidth={1} />
           ))}
           {snappedVLines.map((l, idx) => (
             <ReferenceLine key={`vl-${idx}`} x={l.x} stroke={l.stroke || '#111'} strokeDasharray={l.strokeDasharray || '6 6'} strokeWidth={l.strokeWidth || 3} label={l.label} />
