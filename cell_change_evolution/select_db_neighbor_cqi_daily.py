@@ -28,7 +28,7 @@ def create_connection():
         print(f"Error creating database connection: {e}")
         return None
 
-def get_neighbor_sites(site_list, radius_km=5):
+def get_neighbor_sites(site_list, radius_km=5, vecinos=""):
     """Get neighbor sites within radius using PostGIS"""
     engine = create_connection()
     if engine is None:
@@ -45,7 +45,7 @@ def get_neighbor_sites(site_list, radius_km=5):
         # Create placeholders for individual sites
         site_placeholders = ', '.join([f"'{site}'" for site in site_list])
         radius_meters = radius_km * 1000
-        
+        mis_vecinos = "" if radius_km>0.1 else f"'{"','".join(vecinos.split(','))}'"
         neighbor_query = text(f"""
         WITH center_sites AS (
             SELECT latitude, longitude, att_name
@@ -69,6 +69,12 @@ def get_neighbor_sites(site_list, radius_km=5):
             {radius_meters}
         )
         ORDER BY m.att_name;
+        """) if radius_km>0.1 else text(f"""
+         SELECT latitude, longitude, att_name
+            FROM public.master_node_total 
+            WHERE att_name IN ({mis_vecinos})
+            AND latitude IS NOT NULL 
+            AND longitude IS NOT NULL
         """)
         
         df = pd.read_sql_query(neighbor_query, engine)
@@ -206,7 +212,7 @@ def get_neighbor_cqi_daily(site_list, min_date=None, max_date=None, technology=N
     finally:
         engine.dispose()
 
-def get_neighbor_traffic_data(site, min_date=None, max_date=None, technology=None, radius_km=5, vendor=None):
+def get_neighbor_traffic_data(site, min_date=None, max_date=None, technology=None, radius_km=5, vendor=None, vecinos=''):
     """Get traffic data for neighbor sites within radius using direct SQL, aggregated daily across neighbors.
 
     Adds aggregated columns:
@@ -214,7 +220,7 @@ def get_neighbor_traffic_data(site, min_date=None, max_date=None, technology=Non
       - traffic_dlul_tb (TB): total PDCP traffic for 5G (converted from GB)
     """
     try:
-        neighbors = get_neighbor_sites(site, radius_km=radius_km)
+        neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
     except Exception:
         neighbors = []
     if not neighbors:
@@ -408,14 +414,14 @@ def get_neighbor_traffic_data(site, min_date=None, max_date=None, technology=Non
     finally:
         engine.dispose()
 
-def get_neighbor_traffic_voice(site, min_date=None, max_date=None, technology=None, radius_km=5, vendor=None):
+def get_neighbor_traffic_voice(site, min_date=None, max_date=None, technology=None, radius_km=5, vendor=None, vecinos=''):
     """Get voice traffic data for neighbor sites within radius using direct SQL, aggregated daily across neighbors.
 
     Adds aggregated column:
       - traffic_voice: total voice traffic across technologies/vendors.
     """
     try:
-        neighbors = get_neighbor_sites(site, radius_km=radius_km)
+        neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
     except Exception:
         neighbors = []
     if not neighbors:
@@ -583,14 +589,14 @@ def _date_filter_params(min_date, max_date, alias: str, params: dict) -> str:
         conds.append(f"{alias}.date <= :max_{alias}")
     return (" AND ".join(conds)) if conds else ""
 
-def get_neighbor_umts_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5):
+def get_neighbor_umts_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5, vecinos=''):
     """Compute UMTS (3G) unified CQI for neighbors per day using row-based formulas.
 
     Input is a center site name; neighbors are derived via get_neighbor_sites(). The center
     site is excluded. Returns columns [time, umts_cqi].
     """
     try:
-        neighbors = get_neighbor_sites(site, radius_km=radius_km)
+        neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
     except Exception:
         neighbors = []
     if not neighbors:
@@ -646,14 +652,14 @@ def get_neighbor_umts_cqi_daily_calculated(site, min_date=None, max_date=None, r
     finally:
         engine.dispose()
 
-def get_neighbor_lte_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5):
+def get_neighbor_lte_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5, vecinos=''):
     """Compute LTE (4G) unified CQI for neighbors per day using row-based formulas.
 
     Input is a center site name; neighbors are derived via get_neighbor_sites(). The center
     site is excluded. Returns columns [time, lte_cqi].
     """
     try:
-        neighbors = get_neighbor_sites(site, radius_km=radius_km)
+        neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
     except Exception:
         neighbors = []
     if not neighbors:
@@ -713,14 +719,14 @@ def get_neighbor_lte_cqi_daily_calculated(site, min_date=None, max_date=None, ra
     finally:
         engine.dispose()
 
-def get_neighbor_nr_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5):
+def get_neighbor_nr_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5, vecinos=''):
     """Compute NR (5G) unified CQI for neighbors per day using row-based formulas.
 
     Input is a center site name; neighbors are derived via get_neighbor_sites(). The center
     site is excluded. Returns columns [time, nr_cqi].
     """
     try:
-        neighbors = get_neighbor_sites(site, radius_km=radius_km)
+        neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
     except Exception:
         neighbors = []
     if not neighbors:
@@ -772,7 +778,7 @@ def get_neighbor_nr_cqi_daily_calculated(site, min_date=None, max_date=None, rad
     finally:
         engine.dispose()
 
-def get_neighbor_cqi_daily_calculated(site, min_date=None, max_date=None, technology=None, radius_km=5):
+def get_neighbor_cqi_daily_calculated(site, min_date=None, max_date=None, technology=None, radius_km=5, vecinos=''):
     """Neighbor version of calculated CQI.
 
     Accepts a center site name (str) or list of centers. Internally, the per-technology
@@ -783,17 +789,17 @@ def get_neighbor_cqi_daily_calculated(site, min_date=None, max_date=None, techno
     - If technology is None, merge three techs on time: [time, lte_cqi, nr_cqi, umts_cqi]
     """
     if technology == '3G':
-        return get_neighbor_umts_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km)
+        return get_neighbor_umts_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km, vecinos=vecinos)
     if technology == '4G':
-        return get_neighbor_lte_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km)
+        return get_neighbor_lte_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km, vecinos=vecinos)
     if technology == '5G':
-        return get_neighbor_nr_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km)
+        return get_neighbor_nr_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km, vecinos=vecinos)
 
     # Run three tech calculations in parallel
     with ThreadPoolExecutor(max_workers=3) as ex:
-        f_umts = ex.submit(get_neighbor_umts_cqi_daily_calculated, site, min_date, max_date, radius_km)
-        f_lte  = ex.submit(get_neighbor_lte_cqi_daily_calculated, site, min_date, max_date, radius_km)
-        f_nr   = ex.submit(get_neighbor_nr_cqi_daily_calculated, site, min_date, max_date, radius_km)
+        f_umts = ex.submit(get_neighbor_umts_cqi_daily_calculated, site, min_date, max_date, radius_km, vecinos=vecinos)
+        f_lte  = ex.submit(get_neighbor_lte_cqi_daily_calculated, site, min_date, max_date, radius_km, vecinos=vecinos)
+        f_nr   = ex.submit(get_neighbor_nr_cqi_daily_calculated, site, min_date, max_date, radius_km, vecinos=vecinos)
         try:
             df3 = f_umts.result()
         except Exception as e:
@@ -827,29 +833,30 @@ def get_neighbor_cqi_daily_calculated(site, min_date=None, max_date=None, techno
 
 if __name__ == "__main__":
     site_att = 'DIFALO0001'
+    vecinos = ''
     
     print("Testing Neighbor sites:")
-    neighbor_sites = get_neighbor_sites(site_att, radius_km=10)
+    neighbor_sites = get_neighbor_sites(site_att, radius_km=10, vecinos=vecinos)
     print(f"Single site neighbors: {neighbor_sites}")
     
     multiple_sites = ['DIFALO0001', 'DIFALO0002']
-    neighbor_sites_multi = get_neighbor_sites(multiple_sites, radius_km=10)
+    neighbor_sites_multi = get_neighbor_sites(multiple_sites, radius_km=10, vecinos=vecinos)
     print(f"Multiple sites neighbors: {neighbor_sites_multi}")
 
     print("\nTesting Neighbor CQI data:")
-    neighbor_cqi = get_neighbor_cqi_daily(site_att, min_date='2024-01-01', max_date='2024-12-31', technology='4G', radius_km=10)
+    neighbor_cqi = get_neighbor_cqi_daily(site_att, min_date='2024-01-01', max_date='2024-12-31', technology='4G', radius_km=10, vecinos=vecinos)
     if neighbor_cqi is not None:
         print(f"Neighbor CQI data shape: {neighbor_cqi.shape}")
         print(neighbor_cqi.head())
 
     print("\nTesting Neighbor Traffic data:")
-    neighbor_traffic = get_neighbor_traffic_data(site_att, min_date='2024-01-01', max_date='2024-12-31', technology='4G', radius_km=10)
+    neighbor_traffic = get_neighbor_traffic_data(site_att, min_date='2024-01-01', max_date='2024-12-31', technology='4G', radius_km=10, vecinos=vecinos)
     if neighbor_traffic is not None:
         print(f"Neighbor Traffic data shape: {neighbor_traffic.shape}")
         print(neighbor_traffic.head())
 
     print("\nTesting Neighbor Voice data:")
-    neighbor_voice = get_neighbor_traffic_voice(site_att, min_date='2024-01-01', max_date='2024-12-31', technology='4G', radius_km=10)
+    neighbor_voice = get_neighbor_traffic_voice(site_att, min_date='2024-01-01', max_date='2024-12-31', technology='4G', radius_km=10, vecinos=vecinos)
     if neighbor_voice is not None:
         print(f"Neighbor Voice data shape: {neighbor_voice.shape}")
         print(neighbor_voice.head())
