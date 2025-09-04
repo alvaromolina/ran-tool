@@ -231,7 +231,7 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_cqi':
-        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vecinos=vecinos)
+        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 25.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vecinos=vecinos)
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
         # Scale CQI to 0-100 for API output consistency
         if val is not None and not np.isnan(val):
@@ -398,7 +398,7 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
         return task, val, elapsed
 
     # Global time budget to return partial results
-    GLOBAL_BUDGET_S = 25.0
+    GLOBAL_BUDGET_S = 45.0
     start_time = time.perf_counter()
     results: Dict[Task, Optional[float]] = {}
 

@@ -118,7 +118,14 @@ def get_neighbors_list(
     if engine is None:
         return []
     try:
-        mis_vecinos = "" if radius_km>0.1 else f"'{"','".join(vecinos.split(','))}'"
+        # Build a safely quoted CSV for vecinos when radius filter is disabled (radius_km <= 0.1)
+        if radius_km > 0.1:
+            mis_vecinos = ""
+            vec_list = []
+        else:
+            vec_list = [v.strip() for v in (vecinos or '').split(',') if v.strip()]
+            # Join as 'a','b','c' without nested f-string braces
+            mis_vecinos = ",".join([f"'{v}'" for v in vec_list])
         # Detect actual column names in master_node_total
         cols_query = text(
             """
@@ -183,14 +190,21 @@ def get_neighbors_list(
                     :radius
               )
             ORDER BY site_name ASC
-        """ if radius_km>0.1 else f"""
+        """ if radius_km>0.1 else (
+            # If vecinos list is empty under the fixed-neighbors mode, return no rows
+            f"""
+         SELECT m.{id_col} AS site_name,
+                   {', '.join(select_attrs)}
+            FROM public.master_node_total m
+            WHERE 1 = 0
+        """ if not vec_list else f"""
          SELECT m.{id_col} AS site_name,
                    {', '.join(select_attrs)}
             FROM public.master_node_total m
             WHERE m.{id_col} IN ({mis_vecinos})
-            AND latitude IS NOT NULL 
-            AND longitude IS NOT NULL
-        """
+            AND {lat_col} IS NOT NULL 
+            AND {lon_col} IS NOT NULL
+        """)
 
         df = pd.read_sql_query(text(sql), engine, params={"site": site_att, "radius": radius_meters})
         return df_json_records(df)
@@ -367,7 +381,13 @@ def get_neighbors_geo(
         return []
     try:
         radius_meters = radius_km * 1000
-        sites = '' if radius_km>0.1 else f"'{"','".join(vecinos.split(','))}'"
+        # Build neighbor sites list safely when radius is disabled (<= 0.1)
+        if radius_km > 0.1:
+            sites = ""
+            vec_list = []
+        else:
+            vec_list = [v.strip() for v in (vecinos or '').split(',') if v.strip()]
+            sites = ",".join([f"'{v}'" for v in vec_list])
         # Detect actual column names in master_node_total
         cols_query = text(
             """
@@ -409,14 +429,19 @@ def get_neighbors_geo(
             UNION ALL
             SELECT 'neighbor' AS role, id AS att_name, lat AS latitude, lon AS longitude FROM neighbors
             ORDER BY role DESC, att_name ASC
-        """ if radius_km>0.1 else f"""
+        """ if radius_km>0.1 else (
+            # If vecinos list is empty, return only the center row
+            f"""
+            SELECT 'center' AS role, {id_col} AS att_name, {lat_col} AS latitude, {lon_col} AS longitude FROM public.master_node_total m
+            WHERE {id_col} = :site
+        """ if not vec_list else f"""
             SELECT 'center' AS role, {id_col} AS att_name, {lat_col} AS latitude, {lon_col} AS longitude FROM public.master_node_total m
             WHERE {id_col} = :site
             UNION ALL
             SELECT 'neighbor' AS role, {id_col} AS att_name, {lat_col} AS latitude, {lon_col} AS longitude FROM public.master_node_total
             WHERE {id_col} in ({sites})
             ORDER BY role DESC, att_name ASC
-        """
+        """)
 
         df = pd.read_sql_query(text(sql), engine, params={"site": site_att})
         return df.to_dict(orient="records")

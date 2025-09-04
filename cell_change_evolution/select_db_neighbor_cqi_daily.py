@@ -42,42 +42,51 @@ def get_neighbor_sites(site_list, radius_km=5, vecinos=""):
         return []
     
     try:
-        # Create placeholders for individual sites
-        site_placeholders = ', '.join([f"'{site}'" for site in site_list])
         radius_meters = radius_km * 1000
-        mis_vecinos = "" if radius_km>0.1 else f"'{"','".join(vecinos.split(','))}'"
-        neighbor_query = text(f"""
-        WITH center_sites AS (
-            SELECT latitude, longitude, att_name
-            FROM public.master_node_total 
-            WHERE att_name IN ({site_placeholders})
-            AND latitude IS NOT NULL 
-            AND longitude IS NOT NULL
-        )
-        SELECT DISTINCT
-            m.att_name
-        FROM public.master_node_total m
-        CROSS JOIN center_sites c
-        WHERE m.att_name IS NOT NULL
-        AND m.latitude IS NOT NULL 
-        AND m.longitude IS NOT NULL
-        AND m.att_name != c.att_name
-        AND m.att_name NOT IN ({site_placeholders})
-        AND ST_DWithin(
-            ST_GeogFromText('POINT(' || c.longitude || ' ' || c.latitude || ')'),
-            ST_GeogFromText('POINT(' || m.longitude || ' ' || m.latitude || ')'),
-            {radius_meters}
-        )
-        ORDER BY m.att_name;
-        """) if radius_km>0.1 else text(f"""
-         SELECT latitude, longitude, att_name
-            FROM public.master_node_total 
-            WHERE att_name IN ({mis_vecinos})
-            AND latitude IS NOT NULL 
-            AND longitude IS NOT NULL
-        """)
+        params = {"sites": site_list, "radius_meters": radius_meters}
+        if radius_km > 0.1:
+            neighbor_query = text(
+                """
+                WITH center_sites AS (
+                    SELECT latitude, longitude, att_name
+                    FROM public.master_node_total 
+                    WHERE att_name = ANY(:sites)
+                      AND latitude IS NOT NULL 
+                      AND longitude IS NOT NULL
+                )
+                SELECT DISTINCT m.att_name
+                FROM public.master_node_total m
+                CROSS JOIN center_sites c
+                WHERE m.att_name IS NOT NULL
+                  AND m.latitude IS NOT NULL 
+                  AND m.longitude IS NOT NULL
+                  AND m.att_name <> c.att_name
+                  AND NOT (m.att_name = ANY(:sites))
+                  AND ST_DWithin(
+                        ST_SetSRID(ST_MakePoint(c.longitude, c.latitude), 4326)::geography,
+                        ST_SetSRID(ST_MakePoint(m.longitude, m.latitude), 4326)::geography,
+                        :radius_meters
+                  )
+                ORDER BY m.att_name
+                """
+            )
+        else:
+            vec_list = [v.strip() for v in (vecinos or '').split(',') if v.strip()]
+            if not vec_list:
+                return []
+            params["vecinos"] = vec_list
+            neighbor_query = text(
+                """
+                SELECT att_name
+                FROM public.master_node_total 
+                WHERE att_name = ANY(:vecinos)
+                  AND latitude IS NOT NULL 
+                  AND longitude IS NOT NULL
+                ORDER BY att_name
+                """
+            )
         
-        df = pd.read_sql_query(neighbor_query, engine)
+        df = pd.read_sql_query(neighbor_query, engine, params=params)
         neighbor_sites = df['att_name'].tolist()
         
         print(f"Found {len(neighbor_sites)} unique neighbor sites within {radius_km}km of {len(site_list)} center sites")
@@ -103,8 +112,7 @@ def get_neighbor_cqi_daily(site_list, min_date=None, max_date=None, technology=N
         return pd.DataFrame()
     
     try:
-        site_placeholders = ', '.join([f"'{site}'" for site in site_list])
-        radius_meters = radius_km * 1000
+        params = {"sites": site_list, "radius_meters": radius_km * 1000}
 
         # Build per-technology SELECTs with date pushdown
         selects = []
@@ -168,41 +176,43 @@ def get_neighbor_cqi_daily(site_list, min_date=None, max_date=None, technology=N
 
         union_block = "\nUNION ALL\n".join(selects) if selects else "SELECT NULL::timestamp AS time, NULL::double precision AS lte_cqi, NULL::double precision AS nr_cqi, NULL::double precision AS umts_cqi LIMIT 0"
 
-        neighbor_cqi_query = text(f"""
-        WITH center_sites AS (
-            SELECT latitude, longitude, att_name
-            FROM public.master_node_total 
-            WHERE att_name IN ({site_placeholders})
-              AND latitude IS NOT NULL 
-              AND longitude IS NOT NULL
-        ),
-        neighbor_sites AS (
-            SELECT DISTINCT m.att_name
-            FROM public.master_node_total m
-            CROSS JOIN center_sites c
-            WHERE m.att_name IS NOT NULL
-              AND m.latitude IS NOT NULL 
-              AND m.longitude IS NOT NULL
-              AND m.att_name != c.att_name
-              AND m.att_name NOT IN ({site_placeholders})
-              AND ST_DWithin(
-                ST_GeogFromText('POINT(' || c.longitude || ' ' || c.latitude || ')'),
-                ST_GeogFromText('POINT(' || m.longitude || ' ' || m.latitude || ')'),
-                {radius_meters}
-              )
+        neighbor_cqi_query = text(
+            f"""
+            WITH center_sites AS (
+                SELECT latitude, longitude, att_name
+                FROM public.master_node_total 
+                WHERE att_name = ANY(:sites)
+                  AND latitude IS NOT NULL 
+                  AND longitude IS NOT NULL
+            ),
+            neighbor_sites AS (
+                SELECT DISTINCT m.att_name
+                FROM public.master_node_total m
+                CROSS JOIN center_sites c
+                WHERE m.att_name IS NOT NULL
+                  AND m.latitude IS NOT NULL 
+                  AND m.longitude IS NOT NULL
+                  AND m.att_name <> c.att_name
+                  AND NOT (m.att_name = ANY(:sites))
+                  AND ST_DWithin(
+                    ST_SetSRID(ST_MakePoint(c.longitude, c.latitude), 4326)::geography,
+                    ST_SetSRID(ST_MakePoint(m.longitude, m.latitude), 4326)::geography,
+                    :radius_meters
+                  )
+            )
+            SELECT time,
+                   AVG(lte_cqi)  AS lte_cqi,
+                   AVG(nr_cqi)   AS nr_cqi,
+                   AVG(umts_cqi) AS umts_cqi
+            FROM (
+                {union_block}
+            ) norm
+            GROUP BY time
+            ORDER BY time ASC
+            """
         )
-        SELECT time,
-               AVG(lte_cqi)  AS lte_cqi,
-               AVG(nr_cqi)   AS nr_cqi,
-               AVG(umts_cqi) AS umts_cqi
-        FROM (
-            {union_block}
-        ) norm
-        GROUP BY time
-        ORDER BY time ASC
-        """)
 
-        result_df = pd.read_sql_query(neighbor_cqi_query, engine)
+        result_df = pd.read_sql_query(neighbor_cqi_query, engine, params=params)
         print(f"Retrieved neighbor CQI data for {len(site_list)} center sites: {result_df.shape[0]} records")
         return result_df
         
@@ -589,14 +599,15 @@ def _date_filter_params(min_date, max_date, alias: str, params: dict) -> str:
         conds.append(f"{alias}.date <= :max_{alias}")
     return (" AND ".join(conds)) if conds else ""
 
-def get_neighbor_umts_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5, vecinos=''):
+def get_neighbor_umts_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5, vecinos='', neighbors=None):
     """Compute UMTS (3G) unified CQI for neighbors per day using row-based formulas.
 
     Input is a center site name; neighbors are derived via get_neighbor_sites(). The center
     site is excluded. Returns columns [time, umts_cqi].
     """
     try:
-        neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
+        if neighbors is None:
+            neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
     except Exception:
         neighbors = []
     if not neighbors:
@@ -652,14 +663,15 @@ def get_neighbor_umts_cqi_daily_calculated(site, min_date=None, max_date=None, r
     finally:
         engine.dispose()
 
-def get_neighbor_lte_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5, vecinos=''):
+def get_neighbor_lte_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5, vecinos='', neighbors=None):
     """Compute LTE (4G) unified CQI for neighbors per day using row-based formulas.
 
     Input is a center site name; neighbors are derived via get_neighbor_sites(). The center
     site is excluded. Returns columns [time, lte_cqi].
     """
     try:
-        neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
+        if neighbors is None:
+            neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
     except Exception:
         neighbors = []
     if not neighbors:
@@ -719,14 +731,15 @@ def get_neighbor_lte_cqi_daily_calculated(site, min_date=None, max_date=None, ra
     finally:
         engine.dispose()
 
-def get_neighbor_nr_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5, vecinos=''):
+def get_neighbor_nr_cqi_daily_calculated(site, min_date=None, max_date=None, radius_km=5, vecinos='', neighbors=None):
     """Compute NR (5G) unified CQI for neighbors per day using row-based formulas.
 
     Input is a center site name; neighbors are derived via get_neighbor_sites(). The center
     site is excluded. Returns columns [time, nr_cqi].
     """
     try:
-        neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
+        if neighbors is None:
+            neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
     except Exception:
         neighbors = []
     if not neighbors:
@@ -788,18 +801,25 @@ def get_neighbor_cqi_daily_calculated(site, min_date=None, max_date=None, techno
     - If technology in ('3G','4G','5G'), return [time, <tech>_cqi]
     - If technology is None, merge three techs on time: [time, lte_cqi, nr_cqi, umts_cqi]
     """
+    # Precompute neighbors once and reuse
+    try:
+        neighbors = get_neighbor_sites(site, radius_km=radius_km, vecinos=vecinos)
+    except Exception as e:
+        print(f"Error computing neighbors: {e}")
+        neighbors = []
+
     if technology == '3G':
-        return get_neighbor_umts_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km, vecinos=vecinos)
+        return get_neighbor_umts_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km, vecinos=vecinos, neighbors=neighbors)
     if technology == '4G':
-        return get_neighbor_lte_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km, vecinos=vecinos)
+        return get_neighbor_lte_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km, vecinos=vecinos, neighbors=neighbors)
     if technology == '5G':
-        return get_neighbor_nr_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km, vecinos=vecinos)
+        return get_neighbor_nr_cqi_daily_calculated(site, min_date=min_date, max_date=max_date, radius_km=radius_km, vecinos=vecinos, neighbors=neighbors)
 
     # Run three tech calculations in parallel
     with ThreadPoolExecutor(max_workers=3) as ex:
-        f_umts = ex.submit(get_neighbor_umts_cqi_daily_calculated, site, min_date, max_date, radius_km, vecinos=vecinos)
-        f_lte  = ex.submit(get_neighbor_lte_cqi_daily_calculated, site, min_date, max_date, radius_km, vecinos=vecinos)
-        f_nr   = ex.submit(get_neighbor_nr_cqi_daily_calculated, site, min_date, max_date, radius_km, vecinos=vecinos)
+        f_umts = ex.submit(get_neighbor_umts_cqi_daily_calculated, site, min_date, max_date, radius_km, vecinos=vecinos, neighbors=neighbors)
+        f_lte  = ex.submit(get_neighbor_lte_cqi_daily_calculated, site, min_date, max_date, radius_km, vecinos=vecinos, neighbors=neighbors)
+        f_nr   = ex.submit(get_neighbor_nr_cqi_daily_calculated, site, min_date, max_date, radius_km, vecinos=vecinos, neighbors=neighbors)
         try:
             df3 = f_umts.result()
         except Exception as e:
