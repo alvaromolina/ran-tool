@@ -13,6 +13,9 @@ import { StatsigSessionReplayPlugin } from '@statsig/session-replay';
 
 function App() {
 
+  // Simple client-side auth state
+  const [isAuthed, setIsAuthed] = useState<boolean>(() => localStorage.getItem('auth') === '1')
+
   const { client } = useClientAsyncInit(
     "client-KHopjAwMOOYZmJI6daYMwqyqPyW7eV3JcaKiz4xRn8U",
     { userID: 'a-user' }, 
@@ -28,7 +31,7 @@ function App() {
   const [siteSuggestions, setSiteSuggestions] = useState<string[]>([])
   const [siteLoading, setSiteLoading] = useState(false)
   const [radiusKm, setRadiusKm] = useState<number>(5)
-  const [vecinos, setVecinos] = useState<string | null>('')
+  const [vecinos, setVecinos] = useState<string>('')
   const [loadingSite, setLoadingSite] = useState(false)
   const [loadingNb, setLoadingNb] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -73,6 +76,16 @@ function App() {
   const outputsRef = useRef<HTMLElement | null>(null)
   const siteInputRef = useRef<HTMLInputElement | null>(null)
   const evalDateInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Redirect helper between login and main
+  useEffect(() => {
+    const path = window.location.pathname
+    if (!isAuthed && path !== '/login') {
+      window.history.replaceState({}, '', '/login')
+    } else if (isAuthed && path === '/login') {
+      window.history.replaceState({}, '', '/')
+    }
+  }, [isAuthed])
 
   // Ensure neighbor site list is unique by site name
   function dedupeNbSites(rows: Array<{ site_name: string; region: string|null; province: string|null; municipality: string|null; vendor: string|null }>): typeof rows {
@@ -589,6 +602,7 @@ function App() {
   useEffect(() => {
     const s = selectedSite?.trim()
     if (!s || !isValidSite || !isValidEvalDate) { setEvalResult(null); return }
+    if (!isAuthed) { setEvalResult(null); return }
     const input_date = evalDate
     let cancelled = false
     setEvalLoading(true)
@@ -598,7 +612,7 @@ function App() {
       .catch(err => { if (!cancelled) setEvalError(String(err)) })
       .finally(() => { if (!cancelled) setEvalLoading(false) })
     return () => { cancelled = true }
-  }, [selectedSite, evalThreshold, evalPeriod, evalGuard, evalDate, isValidEvalDate, isValidSite, radiusKm])
+  }, [selectedSite, evalThreshold, evalPeriod, evalGuard, evalDate, isValidEvalDate, isValidSite, radiusKm, isAuthed])
 
   // Tie chart loading spinners to evaluation loading state
   useEffect(() => {
@@ -640,6 +654,7 @@ function App() {
     ;(async () => {
       try {
         // If ranges returns successfully, consider the site valid
+        if (!isAuthed) throw new Error('not authed')
         await api.ranges(s)
         if (!cancelled) setIsValidSite(true)
       } catch {
@@ -647,12 +662,12 @@ function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [selectedSite])
+  }, [selectedSite, isAuthed])
 
   // Fetch event dates when a valid site is selected
   useEffectReact(() => {
     const s = selectedSite?.trim()
-    if (!s || !isValidSite) { setEventDates([]); return }
+    if (!s || !isValidSite || !isAuthed) { setEventDates([]); return }
     let cancelled = false
     ;(async () => {
       try {
@@ -668,7 +683,7 @@ function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [selectedSite, isValidSite])
+  }, [selectedSite, isValidSite, isAuthed])
 
   // Track whether we've fetched at least once to decide loader vs empty-state
   const [fetchedSiteOnce, setFetchedSiteOnce] = useState(false)
@@ -677,7 +692,7 @@ function App() {
   // Fetch neighbor site details when opening modal
   useEffectReact(() => {
     const s = selectedSite?.trim()
-    if (!showSitesModal || !s || !isValidSite) return
+    if (!showSitesModal || !s || !isValidSite || !isAuthed) return
     let cancelled = false
     ;(async () => {
       try {
@@ -693,7 +708,7 @@ function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [showSitesModal, selectedSite, radiusKm, isValidSite])
+  }, [showSitesModal, selectedSite, radiusKm, isValidSite, isAuthed])
 
   function exportNeighborsCsv() {
     if (!nbSites || nbSites.length === 0) return
@@ -838,33 +853,87 @@ function App() {
 
   // Previous neighbor fetch effect removed; neighbors derived from evaluate().data
 
+  // Simple Login form component
+  const LoginForm = () => {
+    const [user, setUser] = useState('')
+    const [pass, setPass] = useState('')
+    const [msg, setMsg] = useState<string | null>(null)
+    const submit = (e: React.FormEvent) => {
+      e.preventDefault()
+      if (user === 'admin' && pass === 'rantool321') {
+        localStorage.setItem('auth', '1')
+        setIsAuthed(true)
+        setMsg(null)
+      } else {
+        setMsg('Usuario o contraseña incorrectos')
+      }
+    }
+    return (
+      <div className="login-card panel">
+        <div className="login-head">
+          <h1>RAN Quality Evaluator</h1>
+          <p className="muted">Accede con tus credenciales para continuar</p>
+        </div>
+        <form onSubmit={submit} className="login-form">
+          <label className="field">
+            <span>Usuario</span>
+            <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="admin" />
+          </label>
+          <label className="field">
+            <span>Contraseña</span>
+            <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="••••••••" />
+          </label>
+          {msg && <div className="note error" role="alert">{msg}</div>}
+          <div className="login-actions">
+            <button className="btn-grid btn-primary" type="submit">Entrar</button>
+          </div>
+        </form>
+      </div>
+    )
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('auth')
+    setIsAuthed(false)
+    window.history.replaceState({}, '', '/login')
+  }
+
   return (
     <StatsigProvider client={client} loadingComponent={<div>Loading...</div>}>
       <div className="app">
+        {!isAuthed ? (
+          <div className="login-screen">
+            <LoginForm />
+          </div>
+        ) : (
+          <>
         <header className="app-header">
           <div>
             <h1>RAN Quality Evaluator</h1>
             <div className="sub">API Health: <code>{health}</code></div>
           </div>
-          <button
-            className="theme-toggle icon"
-            onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          >
-            {theme === 'dark' ? (
-              // Sun icon for switching to light
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="12" cy="12" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
-                <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            ) : (
-              // Moon icon for switching to dark
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/>
-              </svg>
-            )}
-          </button>
+          <div className="header-actions">
+            <button
+              className="theme-toggle icon"
+              onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            >
+              {theme === 'dark' ? (
+                // Sun icon for switching to light
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="12" cy="12" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
+                  <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              ) : (
+                // Moon icon for switching to dark
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" strokeWidth="1.5" fill="currentColor"/>
+                </svg>
+              )}
+            </button>
+            <button className="theme-toggle" onClick={handleLogout}>Salir</button>
+          </div>
         </header>
 
         <main className="layout">
@@ -1317,6 +1386,8 @@ function App() {
             </div>
           )}
         </main>
+        </>
+        )}
       </div>
     </StatsigProvider>
   )
