@@ -28,7 +28,7 @@ function App() {
   const [siteSuggestions, setSiteSuggestions] = useState<string[]>([])
   const [siteLoading, setSiteLoading] = useState(false)
   const [radiusKm, setRadiusKm] = useState<number>(5)
-  const [vecinos, setVecinos] = useState<string[]>([])
+  const [vecinos, setVecinos] = useState<string | null>('')
   const [loadingSite, setLoadingSite] = useState(false)
   const [loadingNb, setLoadingNb] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -683,7 +683,7 @@ function App() {
       try {
         setNbSitesLoading(true)
         setNbSitesError(null)
-        const rows = await api.neighborsList(s, { radius_km: radiusKm })
+        const rows = await api.neighborsList(s, { radius_km: radiusKm, vecinos: vecinos })
         if (cancelled) return
         setNbSites(Array.isArray(rows) ? dedupeNbSites(rows) : [])
       } catch (e: any) {
