@@ -26,9 +26,10 @@ export const api = {
     params.set('limit', String(limit));
     return http<string[]>(`/api/sites/search?${params.toString()}`);
   },
-  neighborsList: (site: string, params?: { radius_km?: number }) => {
+  neighborsList: (site: string, params?: { radius_km?: number, vecinos?: string }) => {
     const q = new URLSearchParams();
     if (params?.radius_km != null) q.set('radius_km', String(params.radius_km));
+    if (params?.vecinos != null) q.set('vecinos', String(params.vecinos.replaceAll("\n",",").replaceAll(" ",",").replaceAll(",,",",")));
     const qs = q.toString();
     return http<Array<{ site_name: string; region: string | null; province: string | null; municipality: string | null; vendor: string | null }>>(
       `/api/sites/${encodeURIComponent(site)}/neighbors/list${qs ? `?${qs}` : ''}`
