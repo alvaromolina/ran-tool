@@ -107,7 +107,8 @@ def search_sites(q: str = Query(..., min_length=1), limit: int = Query(10, ge=1,
 @router.get("/{site_att}/neighbors/list")
 def get_neighbors_list(
     site_att: str,
-    radius_km: float = Query(5, ge=0.1, le=50),
+    radius_km: float = Query(5, ge=0, le=50),
+    vecinos: str = Query(''),
 ):
     """Return neighbor sites with basic attributes: name, region, province, municipality, vendor.
 
@@ -117,6 +118,7 @@ def get_neighbors_list(
     if engine is None:
         return []
     try:
+        mis_vecinos = "" if radius_km>0.1 else f"'{"','".join(vecinos.split(','))}'"
         # Detect actual column names in master_node_total
         cols_query = text(
             """
@@ -181,6 +183,13 @@ def get_neighbors_list(
                     :radius
               )
             ORDER BY site_name ASC
+        """ if radius_km>0.1 else f"""
+         SELECT m.{id_col} AS site_name,
+                   {', '.join(select_attrs)}
+            FROM public.master_node_total m
+            WHERE m.{id_col} IN ({mis_vecinos})
+            AND latitude IS NOT NULL 
+            AND longitude IS NOT NULL
         """
 
         df = pd.read_sql_query(text(sql), engine, params={"site": site_att, "radius": radius_meters})
