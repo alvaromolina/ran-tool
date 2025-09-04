@@ -340,8 +340,9 @@ def get_site_event_dates(
 def get_neighbors(
     site_att: str,
     radius_km: float = Query(5, ge=0.1, le=50, description="Search radius in km"),
+    vecinos: str = Query('')
 ):
-    neighbors = get_neighbor_sites(site_att, radius_km=radius_km)
+    neighbors = get_neighbor_sites(site_att, radius_km=radius_km, vecinos=vecinos)
     return {"site_att": site_att, "radius_km": radius_km, "neighbors": neighbors}
 
 
@@ -349,6 +350,7 @@ def get_neighbors(
 def get_neighbors_geo(
     site_att: str,
     radius_km: float = Query(5, ge=0.1, le=50),
+    vecinos: str = Query(''),
 ):
     """Return center site and neighbors with latitude/longitude."""
     engine = create_connection()
@@ -356,7 +358,7 @@ def get_neighbors_geo(
         return []
     try:
         radius_meters = radius_km * 1000
-
+        sites = '' if radius_km>0.1 else f"'{"','".join(vecinos.split(','))}'"
         # Detect actual column names in master_node_total
         cols_query = text(
             """
@@ -391,16 +393,23 @@ def get_neighbors_geo(
                 AND ST_DWithin(
                     ST_GeogFromText('POINT(' || c.lon || ' ' || c.lat || ')'),
                     ST_GeogFromText('POINT(' || m.{lon_col} || ' ' || m.{lat_col} || ')'),
-                    :radius
+                    {radius_meters}
                 )
             )
             SELECT 'center' AS role, id AS att_name, lat AS latitude, lon AS longitude FROM center
             UNION ALL
             SELECT 'neighbor' AS role, id AS att_name, lat AS latitude, lon AS longitude FROM neighbors
             ORDER BY role DESC, att_name ASC
+        """ if radius_km>0.1 else f"""
+            SELECT 'center' AS role, {id_col} AS att_name, {lat_col} AS latitude, {lon_col} AS longitude FROM public.master_node_total m
+            WHERE {id_col} = :site
+            UNION ALL
+            SELECT 'neighbor' AS role, {id_col} AS att_name, {lat_col} AS latitude, {lon_col} AS longitude FROM public.master_node_total
+            WHERE {id_col} in ({sites})
+            ORDER BY role DESC, att_name ASC
         """
 
-        df = pd.read_sql_query(text(sql), engine, params={"site": site_att, "radius": radius_meters})
+        df = pd.read_sql_query(text(sql), engine, params={"site": site_att})
         return df.to_dict(orient="records")
     finally:
         engine.dispose()
