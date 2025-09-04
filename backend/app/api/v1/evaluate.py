@@ -30,7 +30,8 @@ class EvaluateRequest(BaseModel):
     threshold: float = Field(0.05, ge=0.0, le=1.0, description="Delta threshold as fraction, default 0.05 (5%)")
     period: int = Field(7, ge=1, le=90, description="Period window in days")
     guard: int = Field(7, ge=0, le=90, description="Guard window in days")
-    radius_km: float = Field(5.0, ge=0.1, le=50, description="Neighbor aggregation radius in km")
+    radius_km: float = Field(5.0, ge=0, le=50, description="Neighbor aggregation radius in km")
+    vecinos: str = Field(..., description="Neighbors ATT sites")
     debug: bool = Field(False, description="Include debug timings in response")
 
 MetricClass = Literal[
@@ -184,7 +185,7 @@ def _call_with_timeout(fn: Callable[..., Any], timeout_s: float, *args, **kwargs
             return None
 
 
-def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], end: Optional[date], metric: str, radius_km: float, timings: Optional[Dict[str, float]] = None) -> Optional[float]:
+def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], end: Optional[date], metric: str, radius_km: float, timings: Optional[Dict[str, float]] = None, vecinos: str = '') -> Optional[float]:
     # metric keys: 'site_cqi', 'site_data', 'site_voice', 'nb_cqi', 'nb_data', 'nb_voice'
     frm = _date_str(start)
     to = _date_str(end)
@@ -230,7 +231,7 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_cqi':
-        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
+        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vecinos=vecinos)
         val = _range_mean(df, preferred_cols=['umts_cqi', 'lte_cqi', 'nr_cqi'])
         # Scale CQI to 0-100 for API output consistency
         if val is not None and not np.isnan(val):
@@ -239,7 +240,7 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_data':
-        df = _call_with_timeout(get_neighbor_traffic_data, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None)
+        df = _call_with_timeout(get_neighbor_traffic_data, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None, vecinos=vecinos)
         DATA_COLS = [
             "h3g_traffic_d_user_ps_gb", "e3g_traffic_d_user_ps_gb", "n3g_traffic_d_user_ps_gb",
             "h4g_traffic_d_user_ps_gb", "s4g_traffic_d_user_ps_gb", "e4g_traffic_d_user_ps_gb", "n4g_traffic_d_user_ps_gb",
@@ -251,7 +252,7 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
             timings[f"{metric}:{tech}:{frm}:{to}"] = time.perf_counter() - t0
         return val
     if metric == 'nb_voice':
-        df = _call_with_timeout(get_neighbor_traffic_voice, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None)
+        df = _call_with_timeout(get_neighbor_traffic_voice, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None, vecinos=vecinos)
         VOICE_COLS = [
             "h3g_traffic_v_user_cs", "e3g_traffic_v_user_cs", "n3g_traffic_v_user_cs",
             "user_traffic_volte_e", "user_traffic_volte_h", "user_traffic_volte_n", "user_traffic_volte_s",
@@ -263,7 +264,7 @@ def _compute_range(site_att: str, tech: Optional[str], start: Optional[date], en
     return None
 
 
-def _fetch_timeseries(site_att: str, tech: Optional[str], start: Optional[date], end: Optional[date], metric: str, radius_km: float) -> list:
+def _fetch_timeseries(site_att: str, tech: Optional[str], start: Optional[date], end: Optional[date], metric: str, radius_km: float, vecinos: str) -> list:
     """Fetch raw timeseries rows (JSON records) for a given metric/window.
     metric in { 'site_cqi','site_data','site_voice','nb_cqi','nb_data','nb_voice' }.
     """
@@ -287,7 +288,7 @@ def _fetch_timeseries(site_att: str, tech: Optional[str], start: Optional[date],
         df = _call_with_timeout(get_traffic_voice_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=None, vendor=None)
         return df_json_records(df)
     if metric == 'nb_cqi':
-        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km)
+        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vecinos=vecinos)
         # Scale CQI columns to 0-100 for API output
         try:
             if isinstance(df, pd.DataFrame) and not df.empty:
@@ -298,10 +299,10 @@ def _fetch_timeseries(site_att: str, tech: Optional[str], start: Optional[date],
             pass
         return df_json_records(df)
     if metric == 'nb_data':
-        df = _call_with_timeout(get_neighbor_traffic_data, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None)
+        df = _call_with_timeout(get_neighbor_traffic_data, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None, vecinos=vecinos)
         return df_json_records(df)
     if metric == 'nb_voice':
-        df = _call_with_timeout(get_neighbor_traffic_voice, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None)
+        df = _call_with_timeout(get_neighbor_traffic_voice, 10.0, site=site_att, min_date=frm, max_date=to, technology=None, radius_km=radius_km, vendor=None, vecinos=vecinos)
         return df_json_records(df)
     return []
 
@@ -392,7 +393,7 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
         else:
             s, e = last_start, last_end
         t0 = time.perf_counter()
-        val = _compute_range(req.site_att, tech, s, e, mkey, req.radius_km, None)
+        val = _compute_range(req.site_att, tech, s, e, mkey, req.radius_km, None, req.vecinos)
         elapsed = time.perf_counter() - t0
         return task, val, elapsed
 
@@ -531,7 +532,7 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
     def run_dtask(task: DTask) -> Tuple[DTask, list]:
         scope, mkey, tech, window = task
         s, e = dtask_window_bounds(window)
-        recs = _fetch_timeseries(req.site_att, tech, s, e, mkey, req.radius_km)
+        recs = _fetch_timeseries(req.site_att, tech, s, e, mkey, req.radius_km, req.vecinos)
         return task, recs
 
     # Execute dataset tasks with remaining budget
@@ -575,7 +576,7 @@ def evaluate(req: EvaluateRequest) -> EvaluateResponse:
 
     # Neighbors geo (one-shot, outside windows)
     try:
-        geo = get_neighbors_geo(req.site_att, radius_km=req.radius_km) or []
+        geo = get_neighbors_geo(req.site_att, radius_km=req.radius_km, vecinos=req.vecinos) or []
         data_payload["neighbors"]["geo"] = geo
     except Exception as e:
         print(f"[evaluate] neighbors geo error: {e}")

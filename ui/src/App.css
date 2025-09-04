@@ -134,14 +134,16 @@ html, body, #root { width: 100%; min-height: 100%; }
   font-size: 12px;
   color: #9aa0a6;
 }
-.field input {
+.field input,
+.field textarea {
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid #2a2a2a;
   background: #0e0e0e;
   color: #e5e5e5;
 }
-.field input:focus {
+.field input:focus,
+.field textarea:focus {
   outline: none;
   border-color: var(--brand-blue-500);
   box-shadow: 0 0 0 3px rgba(59,130,246,0.25);

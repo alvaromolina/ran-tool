@@ -28,6 +28,7 @@ function App() {
   const [siteSuggestions, setSiteSuggestions] = useState<string[]>([])
   const [siteLoading, setSiteLoading] = useState(false)
   const [radiusKm, setRadiusKm] = useState<number>(5)
+  const [vecinos, setVecinos] = useState<string | null>('')
   const [loadingSite, setLoadingSite] = useState(false)
   const [loadingNb, setLoadingNb] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -592,7 +593,7 @@ function App() {
     let cancelled = false
     setEvalLoading(true)
     setEvalError(null)
-    api.evaluate({ site_att: s, input_date, threshold: evalThreshold, period: evalPeriod, guard: evalGuard, radius_km: radiusKm })
+    api.evaluate({ site_att: s, input_date, threshold: evalThreshold, period: evalPeriod, guard: evalGuard, radius_km: radiusKm, vecinos: vecinos })
       .then(res => { if (!cancelled) setEvalResult(res) })
       .catch(err => { if (!cancelled) setEvalError(String(err)) })
       .finally(() => { if (!cancelled) setEvalLoading(false) })
@@ -682,7 +683,7 @@ function App() {
       try {
         setNbSitesLoading(true)
         setNbSitesError(null)
-        const rows = await api.neighborsList(s, { radius_km: radiusKm })
+        const rows = await api.neighborsList(s, { radius_km: radiusKm, vecinos: vecinos })
         if (cancelled) return
         setNbSites(Array.isArray(rows) ? dedupeNbSites(rows) : [])
       } catch (e: any) {
@@ -942,13 +943,21 @@ function App() {
                 </div>
               </label>
               <label className="field">
+                <span>Neighbours (sites)</span>
+                <textarea
+                  rows={5}
+                  value={vecinos}
+                  onChange={(e) => { setVecinos(e.target.value); setRadiusKm(0) }}
+                />
+              </label>
+              <label className="field">
                 <span>Radius (km)</span>
                 <input
                   type="number"
                   min={0.1}
                   step={0.1}
                   value={radiusKm}
-                  onChange={(e) => setRadiusKm(parseFloat(e.target.value))}
+                  onChange={(e) => { setRadiusKm(parseFloat(e.target.value)); setVecinos("") }}
                 />
               </label>
             </div>
