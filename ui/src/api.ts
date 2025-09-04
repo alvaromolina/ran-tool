@@ -119,11 +119,13 @@ export const api = {
       `/api/sites/${encodeURIComponent(site)}/event-dates${qs ? `?${qs}` : ''}`
     );
   },
-  evaluate: (args: { site_att: string; input_date: string; threshold?: number; period?: number; guard?: number; radius_km?: number }) =>
-    httpPost<{ site_att: string; input_date: string; options: any; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; metrics: Array<any>; data?: any }>(
+  evaluate: (args: { site_att: string; input_date: string; threshold?: number; period?: number; guard?: number; radius_km?: number ; vecinos?: string}) => {
+    args.vecinos = args.vecinos.replaceAll("\n",",").replaceAll(" ",",").replaceAll(",,",",");
+    return httpPost<{ site_att: string; input_date: string; options: any; overall: 'Pass'|'Fail'|'Restored'|'Inconclusive'|null; metrics: Array<any>; data?: any }>(
       `/api/evaluate`,
       { ...args, debug: true },
-    ),
+    )
+    },
   reportPdf: async (args: { site_att: string; input_date: string; threshold?: number; period?: number; guard?: number; radius_km?: number; include_debug?: boolean }): Promise<Blob> => {
     const res = await fetch(`${BASE_URL}/api/report`, {
       method: 'POST',
