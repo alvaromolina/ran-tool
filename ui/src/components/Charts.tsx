@@ -59,8 +59,8 @@ function withinWindow(rows: any[], xKey: string, min?: string, max?: string): an
   });
 }
 
-export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: number; title?: string; loading?: boolean; xMin?: string; xMax?: string; vLines?: VLine[]; regions?: Region[] }>
-  = ({ data, xKey, height = 260, title, loading, xMin, xMax, vLines = [], regions = [] }) => {
+export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: number; title?: string; loading?: boolean; xMin?: string; xMax?: string; vLines?: VLine[]; regions?: Region[]; missingAsZero?: boolean }>
+  = ({ data, xKey, height = 260, title, loading, xMin, xMax, vLines = [], regions = [], missingAsZero = false }) => {
   const x = xKey || pickXKey(data) || '';
   const series = numericKeys(data, [x]);
   // Expand xMax to at least the day after the furthest region 'to' so ReferenceArea covers the last day fully
@@ -91,7 +91,7 @@ export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: nu
     while (t <= endT) {
       const key = fmtUTC(t);
       const row = map.get(key) || { [xk]: key };
-      for (const c of cols) if (!(c in row)) row[c] = null;
+      for (const c of cols) if (!(c in row)) row[c] = (missingAsZero ? 0 : null);
       out.push(row);
       t += DAY;
     }
@@ -205,7 +205,7 @@ export const SimpleLineChart: React.FC<{ data: any[]; xKey?: string; height?: nu
             <ReferenceLine key={`vl-${idx}`} x={l.x} stroke={l.stroke || '#111'} strokeDasharray={l.strokeDasharray || '6 6'} strokeWidth={l.strokeWidth || 3} label={l.label} />
           ))}
           {series.map((s, i) => (
-            <Line key={s} type="monotone" dataKey={s} stroke={colorForSeries(s, i)} dot={false} strokeWidth={2} connectNulls={true} />
+            <Line key={s} type="monotone" dataKey={s} stroke={colorForSeries(s, i)} dot={false} strokeWidth={2} connectNulls={false} />
           ))}
         </LineChart>
       </ResponsiveContainer>

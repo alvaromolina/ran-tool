@@ -288,7 +288,7 @@ def _fetch_timeseries(site_att: str, tech: Optional[str], start: Optional[date],
         df = _call_with_timeout(get_traffic_voice_daily, 10.5, att_name=site_att, min_date=frm, max_date=to, technology=None, vendor=None)
         return df_json_records(df)
     if metric == 'nb_cqi':
-        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 10.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vecinos=vecinos)
+        df = _call_with_timeout(get_neighbor_cqi_daily_calculated, 25.0, site=site_att, min_date=frm, max_date=to, technology=tech, radius_km=radius_km, vecinos=vecinos)
         # Scale CQI columns to 0-100 for API output
         try:
             if isinstance(df, pd.DataFrame) and not df.empty:

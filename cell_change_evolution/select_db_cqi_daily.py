@@ -206,8 +206,8 @@ def calculate_unified_cqi_nr_row(row):
         thp_sn = round(thp_sn, 2)
 
         # Treat combined throughput fields as kbps. C5/C6 are per kbps; no extra scaling.
-        thp_mn_factor = 1.0
-        thp_sn_factor = 1.0
+        thp_mn_factor = 1000.0
+        thp_sn_factor = 1000.0
     else:
         # Compute ALL KPIs from vendor totals to match vectorized implementation
         # Accessibility MN (%): RRC * S1 * ERAB SR 4G ENDC
