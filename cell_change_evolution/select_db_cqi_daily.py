@@ -248,8 +248,8 @@ def calculate_unified_cqi_nr_row(row):
         thp_mn = round(float(thp_mn_raw), 2) if thp_mn_raw is not None else 0.0
 
         # Here, values are in Mbps; convert to kbps inside the exponential using factor 1000
-        thp_mn_factor = 1000.0
-        thp_sn_factor = 1000.0
+        thp_mn_factor = 1.0
+        thp_sn_factor = 1.0
 
     # Compose final CQI
     def _p(v):

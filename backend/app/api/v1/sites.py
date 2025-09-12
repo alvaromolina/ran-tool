@@ -312,6 +312,14 @@ def get_site_cqi(
         )
     if df is None:
         return []
+    # Scale CQIs to 0-100 for API output consistency
+    try:
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            for col in ('umts_cqi', 'lte_cqi', 'nr_cqi'):
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce') * 100.0
+    except Exception:
+        pass
     if limit is not None:
         df = df.iloc[offset : offset + limit]
     return df_json_records(df)
@@ -479,6 +487,14 @@ def get_neighbors_cqi(
         )
     if df is None:
         return []
+    # Scale CQIs to 0-100 for API output consistency
+    try:
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            for col in ('umts_cqi', 'lte_cqi', 'nr_cqi'):
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce') * 100.0
+    except Exception:
+        pass
     if limit is not None:
         df = df.iloc[offset : offset + limit]
     return df_json_records(df)

@@ -614,12 +614,10 @@ function App() {
     return () => { cancelled = true }
   }, [selectedSite, evalThreshold, evalPeriod, evalGuard, evalDate, isValidEvalDate, isValidSite, radiusKm, isAuthed])
 
-  // Tie chart loading spinners to evaluation loading state
+  // Tie neighbor loading spinner to evaluation loading; site loading managed by its own fetch
   useEffect(() => {
     if (!isValidSite || !isValidEvalDate) return
-    setFetchedSiteOnce(true)
     setFetchedNbOnce(true)
-    setLoadingSite(evalLoading)
     setLoadingNb(evalLoading)
   }, [evalLoading, isValidSite, isValidEvalDate])
 
@@ -824,22 +822,15 @@ function App() {
   useEffectReact(() => {
     const d = (evalResult as any)?.data
     if (!d) {
-      // when no data, clear charts but keep previous fetched flags
-      setSiteCqi([]); setSiteTraffic([]); setSiteVoice([])
+      // when no data, clear neighbor and map charts; leave site charts managed by site fetcher
       setNbCqi([]); setNbTraffic([]); setNbVoice([]); setMapGeo([])
       return
     }
     try {
-      setFetchedSiteOnce(true); setFetchedNbOnce(true)
-      setLoadingSite(false); setLoadingNb(false)
+      setFetchedNbOnce(true)
+      setLoadingNb(false)
       // Geo
       setMapGeo(Array.isArray(d?.neighbors?.geo) ? d.neighbors.geo : [])
-      // Site datasets
-      const siteTrafficRows = combineWindows(d?.site?.traffic?.total)
-      const siteVoiceRows = combineWindows(d?.site?.voice?.total)
-      setSiteTraffic(asTrafficByTech(siteTrafficRows))
-      setSiteVoice(asVoice3GVolte(siteVoiceRows))
-      setSiteCqi(buildCqiMerged('site', d))
       // Neighbor datasets
       const nbTrafficRows = combineWindows(d?.neighbors?.traffic?.total)
       const nbVoiceRows = combineWindows(d?.neighbors?.voice?.total)
@@ -850,6 +841,91 @@ function App() {
       setError(String(e))
     }
   }, [evalResult])
+
+  // Helper: build Site CQIs by merging 3G/4G/5G arrays from /api/sites/<site>/cqi?technology=*
+  function buildSiteCqiFromApis(arr3: any[], arr4: any[], arr5: any[]): any[] {
+    const map = new Map<string, any>()
+    const take = (rows: any[], col: 'cqi_3g'|'cqi_4g'|'cqi_5g') => {
+      for (const r of rows || []) {
+        const t = timeKeyOf(r)
+        if (!t) continue
+        const prev = map.get(t) || { date: t }
+        // Heuristics to pick CQI value from row
+        let val: number | undefined = undefined
+        for (const [k, v] of Object.entries(r)) {
+          if (typeof v === 'number' && /(cqi|lte|nr|umts|3g|4g|5g)/i.test(k)) { val = v; break }
+        }
+        if (val == null) {
+          const keys = ['lte_cqi','nr_cqi','umts_cqi','cqi','avg_cqi','mean_cqi']
+          for (const k of keys) { if (typeof (r as any)[k] === 'number') { val = (r as any)[k]; break } }
+        }
+        map.set(t, { ...prev, [col]: val })
+      }
+    }
+    take(arr3, 'cqi_3g'); take(arr4, 'cqi_4g'); take(arr5, 'cqi_5g')
+    const rows = Array.from(map.values())
+    rows.sort((a, b) => Date.parse(a.date) - Date.parse(b.date))
+    return rows
+  }
+
+  // Fetch Site datasets from /api/sites/* in parallel as soon as:
+  // - a valid site is selected
+  // - a valid date is set
+  // Window strategy:
+  // - If evaluation ranges are available, use their combined [min(from)..max(to)]
+  // - Otherwise, use a provisional window centered on evalDate with span (evalPeriod + evalGuard) on each side
+  useEffectReact(() => {
+    const s = selectedSite?.trim()
+    if (!s || !isValidSite || !isAuthed || !isValidEvalDate) {
+      setSiteCqi([]); setSiteTraffic([]); setSiteVoice([])
+      return
+    }
+    const ranges = (evalResult as any)?.options?.ranges
+    // Derive consolidated from/to
+    const pickStr = (v?: string) => (typeof v === 'string' && v.length ? v : undefined)
+    let from_date: string | undefined
+    let to_date: string | undefined
+    if (ranges) {
+      const candsFrom = [pickStr(ranges?.before?.from), pickStr(ranges?.after?.from), pickStr(ranges?.last?.from)].filter(Boolean) as string[]
+      const candsTo = [pickStr(ranges?.before?.to), pickStr(ranges?.after?.to), pickStr(ranges?.last?.to)].filter(Boolean) as string[]
+      from_date = candsFrom.length ? candsFrom.sort()[0] : undefined
+      to_date = candsTo.length ? candsTo.sort().slice(-1)[0] : undefined
+    }
+    // Fallback provisional window if ranges are not ready yet
+    if (!from_date || !to_date) {
+      const base = new Date(evalDate + 'T00:00:00Z').getTime()
+      const spanDays = (evalPeriod || 7) + (evalGuard || 7)
+      const msDay = 24 * 3600 * 1000
+      const fromT = base - spanDays * msDay
+      // Keep from_date bounded but let backend deliver the latest available by omitting to_date
+      from_date = new Date(fromT).toISOString().slice(0, 10)
+      to_date = undefined
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        setLoadingSite(true)
+        setFetchedSiteOnce(true)
+        // Parallel fetches for site datasets, bounded by evaluation windows
+        const [c3, c4, c5, tr, vo] = await Promise.all([
+          api.cqi(s, { technology: '3G', from_date, to_date }),
+          api.cqi(s, { technology: '4G', from_date, to_date }),
+          api.cqi(s, { technology: '5G', from_date, to_date }),
+          api.traffic(s, { from_date, to_date }),
+          api.voice(s, { from_date, to_date }),
+        ])
+        if (cancelled) return
+        setSiteCqi(buildSiteCqiFromApis(c3, c4, c5))
+        setSiteTraffic(asTrafficByTech(tr))
+        setSiteVoice(asVoice3GVolte(vo))
+      } catch (e: any) {
+        if (!cancelled) setError(String(e))
+      } finally {
+        if (!cancelled) setLoadingSite(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [selectedSite, isValidSite, isValidEvalDate, isAuthed, evalDate, evalPeriod, evalGuard, evalResult])
 
   // Previous neighbor fetch effect removed; neighbors derived from evaluate().data
 
